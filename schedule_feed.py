@@ -67,24 +67,32 @@ def upcoming_events(calendar, now, zone, limit=2):
     return result
 
 
-def format_events(events, zone):
+def format_events(events, zone, crawl=False):
     parts = []
     for event in events:
         value = event.decoded("DTSTART")
         start = event_datetime(value, zone)
         date_text = start.strftime("%A ") + str(start.day) + start.strftime(" %B %Y")
+        time_text = ""
         if isinstance(value, datetime):
-            date_text += start.strftime(" %H:%M")
+            time_text = start.strftime("%H:%M")
             end_value = event.decoded("DTEND", None)
             if end_value is not None:
                 end = event_datetime(end_value, zone)
                 if end > start:
-                    date_text += "-" + (end.strftime("%H:%M") if end.date() == start.date()
+                    time_text += "-" + (end.strftime("%H:%M") if end.date() == start.date()
                                         else end.strftime("%Y-%m-%d %H:%M"))
         title = " ".join(str(event.get("SUMMARY", "Untitled event")).split())
         location = " ".join(str(event.get("LOCATION", "")).split())
-        parts.append(f"{date_text}: {title}" + (f" ({location})" if location else ""))
-    return " | ".join(parts) if parts else "No upcoming events"
+        if location and (title.endswith(f"({location})") or title == location):
+            location = ""
+        if crawl:
+            parts.append("\n".join(part for part in (date_text, time_text,
+                              title.replace("/", " / "), location) if part))
+        else:
+            heading = date_text + (" " + time_text if time_text else "")
+            parts.append(f"{heading}: {title}" + (f" ({location})" if location else ""))
+    return ("\n\n" if crawl else " | ").join(parts) if parts else "No upcoming events"
 
 
 class ScheduleFeed:
@@ -93,14 +101,15 @@ class ScheduleFeed:
     def __init__(self, config_path=CONFIG_PATH):
         self.config_path = config_path
         self.text = "Loading schedule"
+        self.crawl_text = self.text
         self.stop = threading.Event()
         self.thread = None
 
-    def snapshot(self):
+    def snapshot(self, crawl=False):
         if self.thread is None:
             self.thread = threading.Thread(target=self._run, name="calendar-feed", daemon=True)
             self.thread.start()
-        return self.text
+        return self.crawl_text if crawl else self.text
 
     def _run(self):
         calendar = None
@@ -127,15 +136,19 @@ class ScheduleFeed:
             if monotonic >= next_selection:
                 if calendar is None:
                     self.text = "Schedule unavailable"
+                    self.crawl_text = self.text
                 else:
                     try:
                         now = datetime.now(zone)
                         events = upcoming_events(calendar, now, zone)
                         self.text = format_events(events, zone)
+                        self.crawl_text = format_events(events, zone, crawl=True)
                         if stale:
                             self.text += " (last downloaded schedule)"
+                            self.crawl_text += "\n(last downloaded schedule)"
                     except Exception:
                         self.text = "Schedule unavailable"
+                        self.crawl_text = self.text
                 next_selection = monotonic + 1
             self.stop.wait(1)
 

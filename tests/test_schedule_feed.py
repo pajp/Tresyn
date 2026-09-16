@@ -58,6 +58,15 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(expand_message("Next: %schedule% / %schedule%",
                                         schedule="Math"), "Next: Math / Math")
 
+    def test_crawl_groups_calendar_fields_and_avoids_duplicate_room(self):
+        feed = calendar("UID:lesson\nDTSTART:20260917T051500Z\nDTEND:20260917T060000Z\n"
+                        "SUMMARY:Religion/Livsaskadningskunskap (406)\nLOCATION:406")
+        events = upcoming_events(feed, NOW, ZONE)
+        text = format_events(events, ZONE, crawl=True)
+        self.assertIn("\n08:15-09:00\nReligion / Livsaskadningskunskap (406)", text)
+        self.assertEqual(text.count("406"), 1)
+        self.assertEqual(format_events(events * 2, ZONE, crawl=True).count("\n\n"), 1)
+
     def test_background_failure_retains_previous_download(self):
         feed = calendar("UID:future\nDTSTART:20990101T080000Z\nSUMMARY:Future")
         service = ScheduleFeed()

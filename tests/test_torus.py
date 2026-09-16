@@ -8,10 +8,19 @@ from unittest.mock import patch
 import numpy as np
 
 from torus import (Pose, TextStream, camera, expand_message, message_words,
-                   stream_positions, torus_vertices)
+                   message_lines, crawl_rows, text_layout, stream_positions, torus_vertices)
 
 
 class GeometryTests(unittest.TestCase):
+    def test_crawl_wraps_measured_words_without_breaking_them(self):
+        text = "Religion / Livsaskadningskunskap\n08:15-09:00\n\nNext event"
+        rows = crawl_rows(text, lambda text: len(text) * 0.5)
+        self.assertIn("Livsaskadningskunskap", rows)
+        self.assertIn("08:15-09:00", rows)
+        self.assertIn("", rows)
+        self.assertEqual(" ".join(rows).split(), text.split())
+        self.assertEqual(crawl_rows("", lambda text: 0), [])
+
     def test_localized_datetime(self):
         previous = locale.setlocale(locale.LC_TIME)
         try:
@@ -31,7 +40,7 @@ class GeometryTests(unittest.TestCase):
     def test_clock_updates_without_restarting_stream(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "message.txt"
-            path.write_text("Time: %datetime%", encoding="utf-8")
+            path.write_text("\nTime: %datetime%", encoding="utf-8")
             stream = TextStream.__new__(TextStream)
             stream.path = path
             stream.words = []
@@ -42,6 +51,8 @@ class GeometryTests(unittest.TestCase):
             stream.started = 0
             stream.last_error = None
             stream.texture = lambda word: word
+            stream.aspect = lambda word: len(word) * 0.5
+            stream.textures = {}
             with patch("torus.datetime") as clock:
                 clock.now.return_value = datetime(2026, 9, 16, 22, 32, 15)
                 stream.update(10)
@@ -50,7 +61,28 @@ class GeometryTests(unittest.TestCase):
                 stream.update(10.1)
                 self.assertIn("22:32:16", stream.words)
                 self.assertEqual(stream.started, 10)
-                self.assertEqual(path.read_text(), "Time: %datetime%")
+                self.assertEqual(path.read_text(), "\nTime: %datetime%")
+
+    def test_three_line_layout(self):
+        self.assertEqual(message_lines("top\r\n\r\nbottom\nignored"), ["top", "", "bottom"])
+        self.assertEqual(message_lines("top"), ["top", "", ""])
+        self.assertEqual(text_layout(["", "", ""], 1, lambda text: 2), [])
+        before = text_layout(["top", "middle", "bottom"], 1, lambda text: 2)
+        after = text_layout(["top", "middle", "bottom"], 1.1, lambda text: 2)
+        for items in (before, after):
+            for text, model, opacity, ticker in items:
+                self.assertTrue(0 <= opacity <= 1)
+                if text == "top":
+                    self.assertGreater(model[1, 3], 1)
+                    self.assertLess(model[2, 3], 0)
+                elif text == "middle":
+                    self.assertEqual(model[1, 3], 0)
+                else:
+                    self.assertLess(model[1, 3], -1)
+                    self.assertTrue(ticker)
+        x_before = next(m[0, 3] for text, m, _, _ in before if text == "bottom")
+        x_after = next(m[0, 3] for text, m, _, _ in after if text == "bottom")
+        self.assertLess(x_after, x_before)
 
     def test_message_stream(self):
         self.assertEqual(message_words("hello\nworld"), ["hello", "world"])

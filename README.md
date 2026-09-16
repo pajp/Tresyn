@@ -43,11 +43,22 @@ The quilt resolution, grid, aspect ratio, and view cone come from Bridge.
 The Mac preview is the center view, letterboxed to the display's aspect ratio.
 Stripes on the torus make its rotation visible, including roll.
 
-Text is read from `~/torusmessage.txt` as UTF-8 and flows word by word from
-behind the torus through its center. The stream follows the torus position and
-orientation and repeats continuously. File changes appear automatically within
-half a second. An empty or missing file hides the text; creating it resumes the
-stream. Use `--message PATH` to select another file.
+Text is read from the first three lines of `~/torusmessage.txt` as UTF-8:
+
+1. A looping, tilted Star Wars-style crawl moving up and away above the torus.
+2. The original word-by-word stream from behind the torus through its center.
+3. A continuous right-to-left horizontal ticker below the torus.
+
+All three animations follow the torus position and orientation. Blank or missing
+lines hide the corresponding animation; additional lines are ignored. File changes
+appear automatically within half a second. An empty or missing file hides all text.
+Use `--message PATH` to select another file. For example:
+
+```text
+%datetime%
+hello world
+%schedule%
+```
 
 Include `%datetime%` anywhere in the file to show the current local weekday,
 date, and 24-hour time, for example `onsdag 16 september 2026 22:32:15`.
@@ -59,6 +70,9 @@ with localized weekday/date, time range, title, and location. Recurring events,
 exceptions, cancellations, time zones, and all-day events are handled by the
 iCalendar libraries. All-day events start at midnight; ongoing events are omitted.
 If there is only one upcoming event, only that event is shown.
+In the upper crawl, events are grouped into date, time, title, and location rows
+with a gap between events. Wrapping uses rendered word widths; long individual
+words scale to fit instead of being split into fragments.
 
 The feed downloads in the background when this placeholder is first used and
 refreshes every five minutes. Selection advances every second as events start.

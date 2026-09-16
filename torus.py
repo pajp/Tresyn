@@ -134,9 +134,12 @@ layout(location=0) in vec2 position;
 uniform mat4 model;
 uniform mat4 vp;
 out vec2 uv;
+out vec3 localPosition;
 void main() {
     uv = position + 0.5;
-    gl_Position = vp * model * vec4(position, 0.0, 1.0);
+    vec4 local = model * vec4(position, 0.0, 1.0);
+    localPosition = local.xyz;
+    gl_Position = vp * local;
 }
 """
 
@@ -144,9 +147,14 @@ TEXT_FRAGMENT = """#version 330 core
 in vec2 uv;
 uniform sampler2D lettering;
 uniform float opacity;
+uniform bool ticker;
+in vec3 localPosition;
 out vec4 color;
 void main() {
     float alpha = texture(lettering, uv).r * opacity;
+    if (ticker) {
+        alpha *= 1.0 - smoothstep(0.90, 1.05, abs(localPosition.x));
+    }
     if (alpha < 0.02) discard;
     color = vec4(1.0, 0.93, 0.68, alpha);
 }
@@ -197,10 +205,84 @@ def stream_positions(elapsed, count):
     return [(i % count, travel - i * spacing) for i in range(first, last + 1)]
 
 
+def message_lines(text):
+    return (text.splitlines() + ["", "", ""])[:3]
+
+
+def crawl_rows(text, aspect, max_width=1.95, height=0.24):
+    """Wrap measured words, preserving event boundaries and indivisible words."""
+    rows = []
+    for paragraph in text.split("\n"):
+        paragraph = " ".join(paragraph.split())
+        # Modest scaling keeps short fields such as a full date on one row.
+        if paragraph and aspect(paragraph) * height <= max_width * 1.25:
+            rows.append(paragraph)
+            continue
+        line = ""
+        for word in paragraph.split():
+            candidate = f"{line} {word}" if line else word
+            if line and aspect(candidate) * height > max_width:
+                rows.append(line)
+                line = word
+            else:
+                line = candidate
+        rows.append(line)
+    return rows if any(rows) else []
+
+
+def text_layout(lines, elapsed, aspect):
+    """Text, local transform, opacity, and clipping for all three animations."""
+    items = []
+
+    def add(text, x, y, z, max_width, height, tilt=0, opacity=1, ticker=False):
+        width = aspect(text) * height
+        if width > max_width:
+            height *= max_width / width
+            width = max_width
+        model = np.eye(4, dtype=np.float32)
+        model[:3, :3] = rotation((1, 0, 0), tilt) @ np.diag([width, height, 1])
+        model[:3, 3] = (x, y, z)
+        items.append((text, model, opacity, ticker))
+
+    words = message_words(lines[1])
+    for index, z in stream_positions(elapsed, len(words)):
+        add(words[index], 0, 0, z, 0.78, 0.25,
+            opacity=min(1.0, (2.2 - abs(z)) / 0.4))
+
+    rows = crawl_rows(lines[0], aspect)
+    if rows:
+        # Successive rows move up a tilted plane away from the viewer.
+        travel, spacing, length = elapsed * 0.22, 0.36, 1.7
+        for i in range(math.ceil((travel - length) / spacing), math.floor(travel / spacing) + 1):
+            progress = travel - i * spacing
+            fade = min(1.0, progress / 0.18, (length - progress) / 0.5)
+            row = rows[i % len(rows)]
+            if row:
+                add(row, 0, 1.15 + progress * 0.48, -progress * 0.9,
+                    1.95, 0.24, tilt=-math.radians(55), opacity=max(0, fade))
+
+    words = message_words(lines[2])
+    if words:
+        widths = [aspect(word) * 0.19 for word in words]
+        advances = [width + 0.09 for width in widths]
+        cycle = sum(advances) + 0.5
+        offset = (elapsed * 0.32) % cycle
+        cursor = 0
+        for word, width, advance in zip(words, widths, advances):
+            for repeat in range(math.floor((offset - cursor - width - 1.05) / cycle),
+                                math.ceil((offset - cursor + 1.05) / cycle) + 1):
+                x = cursor + width / 2 + repeat * cycle - offset
+                if x + width / 2 > -1.05 and x - width / 2 < 1.05:
+                    add(word, x, -1.75, 0, width, 0.19, ticker=True)
+            cursor += advance
+    return items
+
+
 class TextStream:
     def __init__(self, path):
         self.path = path.expanduser()
         self.words = []
+        self.lines = ["", "", ""]
         self.template = ""
         self.rendered_text = None
         self.schedule = ScheduleFeed()
@@ -217,7 +299,11 @@ class TextStream:
                          [(0, 2, GL.GL_FLOAT, False, 8, 0)])
         self.shader = Shader(TEXT_VERTEX, TEXT_FRAGMENT)
         self.uniforms = {name: GL.glGetUniformLocation(self.shader.id, name)
-                         for name in ("model", "vp", "lettering", "opacity")}
+                         for name in ("model", "vp", "lettering", "opacity", "ticker")}
+
+    def aspect(self, text):
+        left, _, right, _ = self.font.getbbox(text)
+        return (max(1, right - left) + 8) / 80
 
     def update(self, now):
         if now >= self.next_check:
@@ -239,21 +325,30 @@ class TextStream:
                 self.template = ""
                 self.signature = None
         # Expand once per frame, before all quilt views, without restarting motion.
-        schedule = self.schedule.snapshot() if "%schedule%" in self.template else None
-        rendered_text = expand_message(self.template, schedule=schedule)
+        rendered_text = tuple(expand_message(line, schedule=self.schedule.snapshot(crawl=index == 0)
+                              if "%schedule%" in line else None)
+                              for index, line in enumerate(message_lines(self.template)))
         if rendered_text != self.rendered_text:
-            self.words = message_words(rendered_text)
+            self.lines = list(rendered_text)
+            self.words = message_words(self.lines[1])
             self.rendered_text = rendered_text
-        self.items = [(self.texture(self.words[index]), z)
-                      for index, z in stream_positions(now - self.started, len(self.words))]
+        self.items = [(self.texture(text), model, opacity, ticker)
+                      for text, model, opacity, ticker in
+                      text_layout(self.lines, now - self.started, self.aspect)]
+        active = {item[0] for item in self.items}
+        for text, texture in list(self.textures.items()):
+            if len(self.textures) <= 64:
+                break
+            if texture not in active:
+                GL.glDeleteTextures(1, [self.textures.pop(text)])
 
     def texture(self, word):
         if word in self.textures:
             self.textures.move_to_end(word)
             return self.textures[word]
-        left, top, right, bottom = self.font.getbbox(word)
-        image = Image.new("L", (max(1, right - left) + 8, max(1, bottom - top) + 8))
-        ImageDraw.Draw(image).text((4 - left, 4 - top), word, font=self.font, fill=255)
+        left, _, right, _ = self.font.getbbox(word)
+        image = Image.new("L", (max(1, right - left) + 8, 80))
+        ImageDraw.Draw(image).text((4 - left, 62), word, font=self.font, fill=255, anchor="ls")
         texture = GL.glGenTextures(1)
         GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
         GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
@@ -265,40 +360,34 @@ class TextStream:
             GL.glTexParameteri(GL.GL_TEXTURE_2D, parameter, GL.GL_LINEAR)
         for parameter in (GL.GL_TEXTURE_WRAP_S, GL.GL_TEXTURE_WRAP_T):
             GL.glTexParameteri(GL.GL_TEXTURE_2D, parameter, GL.GL_CLAMP_TO_EDGE)
-        width = min(0.78, 0.19 * image.width / image.height)
-        height = width * image.height / image.width
-        self.textures[word] = (texture, width, height)
-        if len(self.textures) > 32:
-            _, old = self.textures.popitem(last=False)
-            GL.glDeleteTextures(1, [old[0]])
+        self.textures[word] = texture
         return self.textures[word]
 
     def draw(self, vp, eye, pose):
         self.shader.use()
-        GL.glUniformMatrix4fv(self.uniforms["vp"], 1, GL.GL_TRUE, vp)
+        GL.glUniformMatrix4fv(self.uniforms["vp"], 1, GL.GL_TRUE, vp @ pose)
         GL.glUniform1i(self.uniforms["lettering"], 0)
         GL.glActiveTexture(GL.GL_TEXTURE0)
         GL.glEnable(GL.GL_BLEND)
         GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
         GL.glDepthMask(GL.GL_FALSE)
         models = []
-        for (texture, width, height), z in self.items:
-            local = np.diag([width, height, 1, 1]).astype(np.float32)
-            local[2, 3] = z
+        for texture, local, opacity, ticker in self.items:
             model = pose @ local
             distance = np.linalg.norm(model[:3, 3] - eye)
-            models.append((distance, texture, model, min(1.0, (2.2 - abs(z)) / 0.4)))
-        for _, texture, model, opacity in sorted(models, key=lambda item: -item[0]):
+            models.append((distance, texture, local, opacity, ticker))
+        for _, texture, model, opacity, ticker in sorted(models, key=lambda item: -item[0]):
             GL.glBindTexture(GL.GL_TEXTURE_2D, texture)
             GL.glUniformMatrix4fv(self.uniforms["model"], 1, GL.GL_TRUE, model)
             GL.glUniform1f(self.uniforms["opacity"], opacity)
+            GL.glUniform1i(self.uniforms["ticker"], ticker)
             self.mesh.draw()
         GL.glDepthMask(GL.GL_TRUE)
         GL.glDisable(GL.GL_BLEND)
 
     def close(self):
         self.schedule.close()
-        for texture, _, _ in self.textures.values():
+        for texture in self.textures.values():
             GL.glDeleteTextures(1, [texture])
         del self.mesh
         GL.glDeleteProgram(self.shader.id)
