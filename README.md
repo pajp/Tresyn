@@ -65,6 +65,11 @@ date, and 24-hour time, for example `onsdag 16 september 2026 22:32:15`.
 Weekday and month names use the Mac's Language & Region locale. The displayed
 time updates every second without restarting the stream or changing the file.
 
+`%greeting%` uses Swedish greetings based on the Mac's local time and updates
+automatically: `god morgon` (05:00-09:59), `god förmiddag` (10:00-11:59),
+`god eftermiddag` (12:00-17:59), `god kväll` (18:00-22:59), and `god natt`
+(23:00-04:59). It works on all three lines, regardless of the system language.
+
 `%schedule%` expands to the next two events whose start times have not passed,
 with localized weekday/date, time range, title, and location. Recurring events,
 exceptions, cancellations, time zones, and all-day events are handled by the

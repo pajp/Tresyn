@@ -188,9 +188,20 @@ def configure_time_locale():
 def expand_message(template, moment=None, schedule=None):
     if "%schedule%" in template and schedule is not None:
         template = template.replace("%schedule%", schedule)
-    if "%datetime%" not in template:
+    if "%datetime%" not in template and "%greeting%" not in template:
         return template
     moment = moment or datetime.now()
+    if moment.hour < 5 or moment.hour >= 23:
+        greeting = "god natt"
+    elif moment.hour < 10:
+        greeting = "god morgon"
+    elif moment.hour < 12:
+        greeting = "god f\u00f6rmiddag"
+    elif moment.hour < 18:
+        greeting = "god eftermiddag"
+    else:
+        greeting = "god kv\u00e4ll"
+    template = template.replace("%greeting%", greeting)
     formatted = (moment.strftime("%A ") + str(moment.day)
                  + moment.strftime(" %B %Y %H:%M:%S"))
     return template.replace("%datetime%", formatted)

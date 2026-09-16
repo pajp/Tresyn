@@ -12,6 +12,22 @@ from torus import (Pose, TextStream, camera, expand_message, message_words,
 
 
 class GeometryTests(unittest.TestCase):
+    def test_swedish_greeting_boundaries(self):
+        for hour, expected in ((0, "god natt"), (4, "god natt"),
+                               (5, "god morgon"), (9, "god morgon"),
+                               (10, "god f\u00f6rmiddag"), (11, "god f\u00f6rmiddag"),
+                               (12, "god eftermiddag"), (17, "god eftermiddag"),
+                               (18, "god kv\u00e4ll"), (22, "god kv\u00e4ll"),
+                               (23, "god natt")):
+            with self.subTest(hour=hour):
+                moment = datetime(2026, 9, 16, hour, 0)
+                self.assertEqual(expand_message("%greeting% / %greeting%", moment),
+                                 expected + " / " + expected)
+                combined = expand_message("%greeting% %datetime% %schedule%",
+                                          moment, schedule="Math")
+                self.assertTrue(combined.startswith(expected))
+                self.assertIn(f"{hour:02d}:00:00 Math", combined)
+
     def test_crawl_wraps_measured_words_without_breaking_them(self):
         text = "Religion / Livsaskadningskunskap\n08:15-09:00\n\nNext event"
         rows = crawl_rows(text, lambda text: len(text) * 0.5)
