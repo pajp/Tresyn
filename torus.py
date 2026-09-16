@@ -20,6 +20,7 @@ from bridge_python_sdk.BridgeApi import BridgeAPI, PixelFormats
 from bridge_python_sdk.Rendering.Mesh import Mesh
 from bridge_python_sdk.Rendering.Shader import Shader
 from bridge_python_sdk.Rendering.Window import Window
+from schedule_feed import ScheduleFeed
 
 
 VERTEX = """#version 330 core
@@ -176,7 +177,9 @@ def configure_time_locale():
     return locale.setlocale(locale.LC_TIME)
 
 
-def expand_message(template, moment=None):
+def expand_message(template, moment=None, schedule=None):
+    if "%schedule%" in template and schedule is not None:
+        template = template.replace("%schedule%", schedule)
     if "%datetime%" not in template:
         return template
     moment = moment or datetime.now()
@@ -200,6 +203,7 @@ class TextStream:
         self.words = []
         self.template = ""
         self.rendered_text = None
+        self.schedule = ScheduleFeed()
         self.signature = None
         self.next_check = 0
         self.started = time.monotonic()
@@ -235,7 +239,8 @@ class TextStream:
                 self.template = ""
                 self.signature = None
         # Expand once per frame, before all quilt views, without restarting motion.
-        rendered_text = expand_message(self.template)
+        schedule = self.schedule.snapshot() if "%schedule%" in self.template else None
+        rendered_text = expand_message(self.template, schedule=schedule)
         if rendered_text != self.rendered_text:
             self.words = message_words(rendered_text)
             self.rendered_text = rendered_text
@@ -292,6 +297,7 @@ class TextStream:
         GL.glDisable(GL.GL_BLEND)
 
     def close(self):
+        self.schedule.close()
         for texture, _, _ in self.textures.values():
             GL.glDeleteTextures(1, [texture])
         del self.mesh

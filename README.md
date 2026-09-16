@@ -2,7 +2,8 @@
 
 A Python/OpenGL torus with a Mac preview and live multiview output to a
 Looking Glass Go, using the installed [Bridge Python SDK](https://github.com/Looking-Glass/Bridge-Python-SDK).
-Uses the existing `.venv`; no additional packages are needed.
+Uses the existing `.venv`. Dependencies, including the iCalendar parser and
+recurrence support, are listed in `requirements.txt`.
 
 Connect and power the Go, start Looking Glass Bridge, then double-click
 `Torus.command`, or run from this directory:
@@ -52,3 +53,19 @@ Include `%datetime%` anywhere in the file to show the current local weekday,
 date, and 24-hour time, for example `onsdag 16 september 2026 22:32:15`.
 Weekday and month names use the Mac's Language & Region locale. The displayed
 time updates every second without restarting the stream or changing the file.
+
+`%schedule%` expands to the next two events whose start times have not passed,
+with localized weekday/date, time range, title, and location. Recurring events,
+exceptions, cancellations, time zones, and all-day events are handled by the
+iCalendar libraries. All-day events start at midnight; ongoing events are omitted.
+If there is only one upcoming event, only that event is shown.
+
+The feed downloads in the background when this placeholder is first used and
+refreshes every five minutes. Selection advances every second as events start.
+Failed downloads retry after a minute and retain the last downloaded schedule
+with a status note. Empty feeds display `No upcoming events`.
+
+The private URL is in Git-ignored `schedule.local.json` next to the app. On a new
+checkout, install with `.venv/bin/python -m pip install -r requirements.txt` and
+create that local config with `url` and `timezone` (such as `Europe/Helsinki`).
+The feed URL and calendar contents are not stored in Git.
