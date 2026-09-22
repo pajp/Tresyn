@@ -87,10 +87,11 @@ final class SceneExportDocument: WritableDocument {
 @MainActor
 final class DrawingSession: ObservableObject {
     enum Tool: String, CaseIterable, Identifiable {
-        case stroke = "Stroke", sphere = "Sphere", box = "Box", torus = "Torus"
+        case select = "Select", stroke = "Stroke", sphere = "Sphere", box = "Box", torus = "Torus"
         var id: String { rawValue }
         var symbol: String {
             switch self {
+            case .select: "hand.draw"
             case .stroke: "pencil.and.scribble"
             case .sphere: "circle.fill"
             case .box: "cube.fill"
@@ -115,6 +116,9 @@ final class DrawingSession: ObservableObject {
     @Published var selectedColor = 0
     @Published var depth = 0.15
     @Published var previewObjects: [PreviewObject] = []
+    @Published var selectedObjectID: String?
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
     @Published var pendingCertificate: String?
     @Published var isTransferringScene = false
 
@@ -134,10 +138,20 @@ final class DrawingSession: ObservableObject {
     private var bufferedPoints: [[Double]] = []
     private var flushTask: Task<Void, Never>?
     private var strokeSendTask: Task<Void, Never>?
+    private var undoStack: [[DrawingObject]] = []
+    private var redoStack: [[DrawingObject]] = []
+    private var pendingStrokeSnapshot: [DrawingObject]?
+    private var editSnapshot: [DrawingObject]?
+    private var editingObject: DrawingObject?
 
     var color: Color { palette[selectedColor].color }
     var rgb: [Double] { palette[selectedColor].rgb }
     var selectedColorName: String { palette[selectedColor].name }
+    var selectedObjectDepth: Double? {
+        guard let selectedObjectID,
+              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object else { return nil }
+        return objectCenter(object)[2]
+    }
 
     init() {
         host = UserDefaults.standard.string(forKey: "lastDrawingServerHost") ?? "looking-glass.local"
@@ -168,6 +182,10 @@ final class DrawingSession: ObservableObject {
                 _ = try await newClient.setMode(.drawing)
                 let scene = try await newClient.state()
                 previewObjects = scene.objects.map(previewObject)
+                selectedObjectID = nil
+                undoStack.removeAll()
+                redoStack.removeAll()
+                updateHistoryAvailability()
                 UserDefaults.standard.set(cleanHost, forKey: "lastDrawingServerHost")
                 client = newClient
                 isConnected = true
@@ -204,8 +222,11 @@ final class DrawingSession: ObservableObject {
         guard let client, !isTransferringScene else { return }
         Task {
             do {
+                let snapshot = sceneObjects()
                 _ = try await client.clear()
                 previewObjects = []
+                selectedObjectID = nil
+                if !snapshot.isEmpty { recordChange(from: snapshot) }
                 status = "Canvas cleared."
             } catch {
                 status = "Couldn’t clear: \(error.localizedDescription)"
@@ -241,6 +262,10 @@ final class DrawingSession: ObservableObject {
                 _ = try await client.put(object)
             }
             previewObjects = objects.map(previewObject)
+            selectedObjectID = nil
+            undoStack.removeAll()
+            redoStack.removeAll()
+            updateHistoryAvailability()
             updateObjectCounter(from: objects)
             status = "Opened scene with \(objects.count) objects."
         } catch {
@@ -274,13 +299,237 @@ final class DrawingSession: ObservableObject {
         objectCounter = max(objectCounter, maximum)
     }
 
+    private func sceneObjects() -> [DrawingObject] {
+        previewObjects.map(\.object)
+    }
+
+    private func recordChange(from snapshot: [DrawingObject]) {
+        undoStack.append(snapshot)
+        redoStack.removeAll()
+        updateHistoryAvailability()
+    }
+
+    private func updateHistoryAvailability() {
+        canUndo = !undoStack.isEmpty
+        canRedo = !redoStack.isEmpty
+    }
+
+    func undo() {
+        guard let snapshot = undoStack.popLast(), let client, !isTransferringScene else { return }
+        redoStack.append(sceneObjects())
+        updateHistoryAvailability()
+        replaceScene(with: snapshot, using: client, successMessage: "Undid last change.")
+    }
+
+    func redo() {
+        guard let snapshot = redoStack.popLast(), let client, !isTransferringScene else { return }
+        undoStack.append(sceneObjects())
+        updateHistoryAvailability()
+        replaceScene(with: snapshot, using: client, successMessage: "Redid change.")
+    }
+
+    private func replaceScene(
+        with objects: [DrawingObject],
+        using client: TorusClient,
+        successMessage: String
+    ) {
+        isTransferringScene = true
+        Task {
+            await strokeSendTask?.value
+            do {
+                _ = try await client.clear()
+                for object in objects {
+                    _ = try await client.put(object)
+                }
+                previewObjects = objects.map(previewObject)
+                selectedObjectID = nil
+                status = successMessage
+            } catch {
+                status = "Couldn’t update scene: \(error.localizedDescription)"
+            }
+            isTransferringScene = false
+        }
+    }
+
+    func selectObject(at location: CGPoint, in size: CGSize) {
+        let point = worldPoint(location, in: size)
+        selectedObjectID = previewObjects
+            .map { ($0.id, planarSelectionDistance(from: point, to: $0.object)) }
+            .filter { $0.1 < 0.5 }
+            .min { $0.1 < $1.1 }?.0
+    }
+
+    func beginMovingSelectedObject() {
+        guard editSnapshot == nil,
+              let selectedObjectID,
+              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object else { return }
+        editSnapshot = sceneObjects()
+        editingObject = object
+    }
+
+    func moveSelectedObject(to location: CGPoint, in size: CGSize) {
+        guard let selectedObjectID, let original = editingObject,
+              let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }) else { return }
+        let target = worldPoint(location, in: size)
+        let center = objectCenter(original)
+        let offset = [target[0] - center[0], target[1] - center[1], 0]
+        let moved = transformed(original, translation: offset)
+        previewObjects[index] = previewObject(moved)
+    }
+
+    func endMovingSelectedObject() {
+        guard let snapshot = editSnapshot, let selectedObjectID,
+              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object,
+              let client else {
+            editSnapshot = nil
+            editingObject = nil
+            return
+        }
+        recordChange(from: snapshot)
+        editSnapshot = nil
+        editingObject = nil
+        Task {
+            do { _ = try await client.put(object) }
+            catch { status = "Couldn’t move object: \(error.localizedDescription)" }
+        }
+    }
+
+    func beginChangingSelectedDepth() {
+        guard editSnapshot == nil, selectedObjectID != nil else { return }
+        editSnapshot = sceneObjects()
+    }
+
+    func setSelectedObjectDepth(_ newDepth: Double) {
+        guard let selectedObjectID,
+              let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }) else { return }
+        let object = previewObjects[index].object
+        let currentDepth = objectCenter(object)[2]
+        previewObjects[index] = previewObject(
+            transformed(object, translation: [0, 0, newDepth - currentDepth])
+        )
+    }
+
+    func endChangingSelectedDepth() {
+        guard let snapshot = editSnapshot, let selectedObjectID,
+              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object,
+              let client else {
+            editSnapshot = nil
+            return
+        }
+        recordChange(from: snapshot)
+        editSnapshot = nil
+        Task {
+            do { _ = try await client.put(object) }
+            catch { status = "Couldn’t change object depth: \(error.localizedDescription)" }
+        }
+    }
+
+    func rotateSelectedObject(by angle: Angle) {
+        guard let selectedObjectID,
+              let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }),
+              let client else { return }
+        let snapshot = sceneObjects()
+        var object = previewObjects[index].object
+        if let points = object.points {
+            let center = objectCenter(object)
+            let cosine = cos(angle.radians)
+            let sine = sin(angle.radians)
+            object.points = points.map { point in
+                let x = (point[safe: 0] ?? 0) - center[0]
+                let y = (point[safe: 1] ?? 0) - center[1]
+                return [
+                    center[0] + x * cosine - y * sine,
+                    center[1] + x * sine + y * cosine,
+                    point[safe: 2] ?? center[2]
+                ]
+            }
+        } else {
+            let current = object.rotation ?? [0, 0, 0, 1]
+            let halfAngle = angle.radians / 2
+            let sine = sin(halfAngle)
+            let cosine = cos(halfAngle)
+            let x = current[safe: 0] ?? 0
+            let y = current[safe: 1] ?? 0
+            let z = current[safe: 2] ?? 0
+            let w = current[safe: 3] ?? 1
+            object.rotation = [-sine * y, sine * x, cosine * z + sine * w, cosine * w - sine * z]
+        }
+        previewObjects[index] = previewObject(object)
+        recordChange(from: snapshot)
+        Task {
+            do { _ = try await client.put(object) }
+            catch { status = "Couldn’t rotate object: \(error.localizedDescription)" }
+        }
+    }
+
+    func deleteSelectedObject() {
+        guard let selectedObjectID, let client,
+              previewObjects.contains(where: { $0.id == selectedObjectID }) else { return }
+        let snapshot = sceneObjects()
+        previewObjects.removeAll { $0.id == selectedObjectID }
+        self.selectedObjectID = nil
+        recordChange(from: snapshot)
+        Task {
+            do { _ = try await client.delete(selectedObjectID) }
+            catch { status = "Couldn’t delete object: \(error.localizedDescription)" }
+        }
+    }
+
+    private func planarSelectionDistance(from point: [Double], to object: DrawingObject) -> Double {
+        guard let points = object.points, !points.isEmpty else {
+            let center = objectCenter(object)
+            return hypot(center[0] - point[0], center[1] - point[1])
+        }
+
+        if points.count == 1 {
+            return hypot((points[0][safe: 0] ?? 0) - point[0],
+                         (points[0][safe: 1] ?? 0) - point[1])
+        }
+
+        return zip(points, points.dropFirst()).map { start, end in
+            let startX = start[safe: 0] ?? 0
+            let startY = start[safe: 1] ?? 0
+            let deltaX = (end[safe: 0] ?? 0) - startX
+            let deltaY = (end[safe: 1] ?? 0) - startY
+            let lengthSquared = deltaX * deltaX + deltaY * deltaY
+            guard lengthSquared > 0 else { return hypot(point[0] - startX, point[1] - startY) }
+            let projection = ((point[0] - startX) * deltaX + (point[1] - startY) * deltaY) / lengthSquared
+            let amount = min(max(projection, 0), 1)
+            return hypot(point[0] - (startX + amount * deltaX),
+                         point[1] - (startY + amount * deltaY))
+        }.min() ?? .infinity
+    }
+
+    private func objectCenter(_ object: DrawingObject) -> [Double] {
+        if let position = object.position {
+            return position
+        }
+        guard let points = object.points, !points.isEmpty else { return [0, 0, depth] }
+        return (0..<3).map { axis in
+            points.reduce(0) { $0 + ($1[safe: axis] ?? 0) } / Double(points.count)
+        }
+    }
+
+    private func transformed(_ object: DrawingObject, translation: [Double]) -> DrawingObject {
+        let position = object.position.map { point in zip(point, translation).map(+) }
+        let points = object.points?.map { point in zip(point, translation).map(+) }
+        return DrawingObject(
+            id: object.id, type: object.type, position: position, rotation: object.rotation,
+            scale: object.scale, color: object.color, radius: object.radius, size: object.size,
+            majorRadius: object.majorRadius, minorRadius: object.minorRadius, points: points
+        )
+    }
+
     func place(_ location: CGPoint, in size: CGSize) {
         guard isConnected, !isTransferringScene, selectedTool != .stroke, let client else { return }
         let point = worldPoint(location, in: size)
+        let snapshot = sceneObjects()
         objectCounter += 1
         let id = "vision-\(selectedTool.rawValue.lowercased())-\(objectCounter)"
         let object: DrawingObject
         switch selectedTool {
+        case .select:
+            return
         case .sphere:
             object = DrawingObject(id: id, type: .sphere, position: point, color: rgb, radius: 0.18)
         case .box:
@@ -291,6 +540,7 @@ final class DrawingSession: ObservableObject {
             return
         }
         previewObjects.append(previewObject(object))
+        recordChange(from: snapshot)
         Task {
             do { _ = try await client.put(object) }
             catch { status = "Couldn’t place shape: \(error.localizedDescription)" }
@@ -304,6 +554,7 @@ final class DrawingSession: ObservableObject {
         strokeInitialized = false
         lastStrokePoint = worldPoint(location, in: size)
         bufferedPoints = []
+        pendingStrokeSnapshot = sceneObjects()
     }
 
     func continueStroke(at location: CGPoint, in size: CGSize) {
@@ -329,6 +580,10 @@ final class DrawingSession: ObservableObject {
         flushTask = nil
         flushStroke()
         activeStrokeID = nil
+        if strokeInitialized, let snapshot = pendingStrokeSnapshot {
+            recordChange(from: snapshot)
+        }
+        pendingStrokeSnapshot = nil
         strokeInitialized = false
         lastStrokePoint = nil
     }
@@ -398,6 +653,9 @@ struct ContentView: View {
     @State private var isImportingScene = false
     @State private var isExportingScene = false
     @State private var exportDocument = SceneExportDocument()
+    @State private var handLocation: CGPoint?
+    @State private var isDirectInteractionActive = false
+    @State private var isMovingSelection = false
 
     var body: some View {
         NavigationStack {
@@ -487,6 +745,37 @@ struct ContentView: View {
                     .tint(session.selectedTool == tool ? .accentColor : .gray)
                 }
                 Divider()
+                HStack {
+                    Button { session.undo() } label: {
+                        Label("Undo", systemImage: "arrow.uturn.backward")
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(!session.canUndo)
+                    Button { session.redo() } label: {
+                        Label("Redo", systemImage: "arrow.uturn.forward")
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(!session.canRedo)
+                }
+                if session.selectedTool == .select {
+                    HStack {
+                        Button { session.rotateSelectedObject(by: .degrees(-15)) } label: {
+                            Label("Rotate left", systemImage: "rotate.left")
+                        }
+                        Button { session.rotateSelectedObject(by: .degrees(15)) } label: {
+                            Label("Rotate right", systemImage: "rotate.right")
+                        }
+                    }
+                    .labelStyle(.iconOnly)
+                    .disabled(session.selectedObjectID == nil)
+                    Button(role: .destructive) {
+                        session.deleteSelectedObject()
+                    } label: {
+                        Label("Delete Selected", systemImage: "trash")
+                    }
+                    .disabled(session.selectedObjectID == nil)
+                }
+                Divider()
                 Picker("Color", selection: $session.selectedColor) {
                     ForEach(session.palette.indices, id: \.self) { index in
                         Text(session.palette[index].name).tag(index)
@@ -496,11 +785,33 @@ struct ContentView: View {
                 .tint(session.color)
                 Text("Selected: \(session.selectedColorName)")
                     .font(.subheadline.weight(.medium)).foregroundStyle(session.color)
-                Text("Depth \(session.depth, format: .number.precision(.fractionLength(2)))")
-                    .font(.headline)
-                Slider(value: $session.depth, in: -0.65...0.65)
-                Text(session.depth > 0 ? "In front of the display plane" : session.depth < 0 ? "Behind the display plane" : "On the display plane")
-                    .font(.caption).foregroundStyle(.secondary)
+                if session.selectedTool == .select {
+                    if let selectedDepth = session.selectedObjectDepth {
+                        Text("Object depth \(selectedDepth, format: .number.precision(.fractionLength(2)))")
+                            .font(.headline)
+                        Slider(value: selectedDepthBinding, in: -0.65...0.65) { isEditing in
+                            if isEditing {
+                                session.beginChangingSelectedDepth()
+                            } else {
+                                session.endChangingSelectedDepth()
+                            }
+                        }
+                        Text(depthDescription(selectedDepth))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Select an object to change its depth")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Depth \(session.depth, format: .number.precision(.fractionLength(2)))")
+                        .font(.headline)
+                    Slider(value: $session.depth, in: -0.65...0.65)
+                    Text(depthDescription(session.depth))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button {
                     isImportingScene = true
@@ -530,7 +841,7 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text(session.selectedTool == .stroke ? "Pinch and drag to draw" : "Tap to place \(session.selectedTool.rawValue.lowercased())s")
+                    Text(instructionText)
                         .font(.headline)
                     Spacer()
                     Label("Live", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.green)
@@ -543,10 +854,88 @@ struct ContentView: View {
         }
     }
 
+    private var selectedDepthBinding: Binding<Double> {
+        Binding(
+            get: { session.selectedObjectDepth ?? 0 },
+            set: { session.setSelectedObjectDepth($0) }
+        )
+    }
+
+    private func depthDescription(_ value: Double) -> String {
+        if value > 0 { return "In front of the display plane" }
+        if value < 0 { return "Behind the display plane" }
+        return "On the display plane"
+    }
+
+    private var instructionText: String {
+        switch session.selectedTool {
+        case .select:
+            "Touch an object to select it, then pinch and drag to move"
+        case .stroke:
+            "Bring your hand to the canvas, then pinch and hold to draw"
+        case .sphere, .box, .torus:
+            "Bring your hand to the canvas, then pinch to place a \(session.selectedTool.rawValue.lowercased())"
+        }
+    }
+
+    private func directDrawingGesture(in size: CGSize) -> some Gesture {
+        DragGesture(
+            minimumDistance: 0,
+            coordinateSpace: .local,
+            inputKinds: .all
+        )
+        .onChanged { value in
+            handLocation = value.location
+            isDirectInteractionActive = true
+            switch session.selectedTool {
+            case .select:
+                if value.translation == .zero {
+                    session.selectObject(at: value.location, in: size)
+                } else {
+                    if !isMovingSelection {
+                        session.beginMovingSelectedObject()
+                        isMovingSelection = true
+                    }
+                    session.moveSelectedObject(to: value.location, in: size)
+                }
+            case .stroke:
+                if value.translation == .zero {
+                    session.beginStroke(at: value.location, in: size)
+                } else {
+                    session.continueStroke(at: value.location, in: size)
+                }
+            case .sphere, .box, .torus:
+                break
+            }
+        }
+        .onEnded { value in
+            handLocation = value.location
+            isDirectInteractionActive = false
+            switch session.selectedTool {
+            case .select:
+                if isMovingSelection { session.endMovingSelectedObject() }
+                isMovingSelection = false
+            case .stroke:
+                session.endStroke()
+            case .sphere, .box, .torus:
+                session.place(value.location, in: size)
+            }
+        }
+    }
+
     private var drawingSurface: some View {
         GeometryReader { geometry in
             ZStack {
-                RealityDrawingPreview(objects: session.previewObjects)
+                RealityDrawingPreview(objects: session.previewObjects, selectedObjectID: session.selectedObjectID)
+                if let handLocation {
+                    Circle()
+                        .fill(session.color)
+                        .frame(width: isDirectInteractionActive ? 18 : 12, height: isDirectInteractionActive ? 18 : 12)
+                        .overlay(Circle().stroke(.white, lineWidth: 2))
+                        .shadow(color: session.color.opacity(0.8), radius: 8)
+                        .position(handLocation)
+                        .allowsHitTesting(false)
+                }
                 VStack {
                     Text("Looking Glass Go • 2.925 × 5.2 display-world units")
                         .font(.caption).foregroundStyle(.secondary)
@@ -555,22 +944,16 @@ struct ContentView: View {
                 .padding()
             }
             .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    guard session.selectedTool == .stroke else { return }
-                    if value.translation == .zero {
-                        session.beginStroke(at: value.location, in: geometry.size)
-                    } else {
-                        session.continueStroke(at: value.location, in: geometry.size)
-                    }
+            .handPointerBehavior(.drawing)
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    handLocation = location
+                case .ended:
+                    if !isDirectInteractionActive { handLocation = nil }
                 }
-                .onEnded { value in
-                    if session.selectedTool == .stroke {
-                        session.endStroke()
-                    } else {
-                        session.place(value.location, in: geometry.size)
-                    }
-                })
+            }
+            .gesture(directDrawingGesture(in: geometry.size))
         }
         .aspectRatio(2.925 / 5.2, contentMode: .fit)
         .frame(maxWidth: 360, maxHeight: 640)
@@ -580,6 +963,7 @@ struct ContentView: View {
 
 struct RealityDrawingPreview: View {
     let objects: [DrawingSession.PreviewObject]
+    let selectedObjectID: String?
     @State private var root = Entity()
 
     var body: some View {
@@ -617,16 +1001,36 @@ struct RealityDrawingPreview: View {
 
         for preview in objects {
             if let existing = root.findEntity(named: preview.id) {
-                guard preview.object.type == .polyline || preview.object.type == .line,
-                      let model = existing as? ModelEntity,
-                      let mesh = strokeMesh(for: preview.object) else { continue }
-                model.model?.mesh = mesh
+                update(existing, with: preview)
             } else {
                 let entity = entity(for: preview)
                 entity.name = preview.id
                 root.addChild(entity)
             }
         }
+        for preview in objects {
+            guard let entity = root.findEntity(named: preview.id) else { continue }
+            entity.components.set(OpacityComponent(opacity: preview.id == selectedObjectID ? 0.72 : 1))
+        }
+    }
+
+    @MainActor
+    private func update(_ entity: Entity, with preview: DrawingSession.PreviewObject) {
+        let object = preview.object
+        if (object.type == .polyline || object.type == .line),
+           let model = entity as? ModelEntity,
+           let mesh = strokeMesh(for: object) {
+            model.model?.mesh = mesh
+        }
+        entity.position = vector(object.position ?? [0, 0, 0])
+        entity.scale = vector(object.scale ?? [1, 1, 1])
+        let rotation = object.rotation ?? [0, 0, 0, 1]
+        entity.orientation = simd_quatf(
+            ix: Float(rotation[safe: 0] ?? 0),
+            iy: Float(rotation[safe: 1] ?? 0),
+            iz: Float(rotation[safe: 2] ?? 0),
+            r: Float(rotation[safe: 3] ?? 1)
+        )
     }
 
     @MainActor
