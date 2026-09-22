@@ -1,5 +1,62 @@
 # Trackpad Torus
 
+## Remote 3D Drawing
+
+Open `Drawing Server.command` to enable the TLS server, or run
+`.venv/bin/python torus.py --server`. Pair using just the one-time code
+shown on the display the first time. Later connections securely resume without a
+code using a secret bound to the remembered server certificate. The client remembers the server's certificate automatically
+and warns before accepting a changed certificate. Press **P** to show pairing; **Tab** switches
+between dashboard and drawing. On disconnect, a fresh pairing code appears
+automatically. Use **New code** to refresh it, **Back to scene** to return to your
+drawing, or **Shift+P** to disconnect a stuck client locally. The Swift client
+prompts for a replacement after an incorrect/expired code.
+The usual `Torus.command` runs the dashboard
+without opening a network socket.
+
+The new drawing mode supports colored spheres, boxes, toruses, thick 3D lines,
+and polylines, including live stroke appends, updates, erasing, and clearing.
+
+### Tresyn visionOS client
+
+The `Tresyn` Xcode project provides a native visionOS drawing client with a live
+RealityKit preview of the 3D scene shown on Looking Glass Go. It supports strokes,
+spheres, boxes, and toruses at selectable depth. The preview keeps one RealityKit
+entity per drawing object and renders each stroke as a combined tube mesh, avoiding
+the per-point entity churn and SwiftUI state mutations that previously caused
+physical-device flicker and compositor corruption. The full supported depth range,
+including objects behind the display plane, remains visible in the preview.
+
+Tresyn can also persist the server's in-memory scene without any server or protocol
+extensions:
+
+- **Save Scene** requests a fresh scene snapshot from the connected server and
+  exports it as a versioned JSON document.
+- **Open Scene** validates a saved document, clears the connected server, and
+  rebuilds the scene using the existing `put` commands. If replay fails, the client
+  attempts to restore the previous server snapshot.
+
+The server itself still keeps drawings only in memory. Restarting it loses the
+current scene unless it was saved from Tresyn first. Opening and saving therefore
+require an active server connection.
+
+Build and run the macOS Swift demo:
+
+```sh
+zsh swift-client/build.sh
+.build/torus-client --host 127.0.0.1 --demo
+```
+
+It prompts for the pairing code. See [PROTOCOL.md](PROTOCOL.md) for the complete
+wire protocol, coordinates, security model, interactive client, and examples.
+The client protocol is also available as the reusable
+[TorusDrawingClient Swift package](swift-client/README.md), with async APIs for
+macOS, iOS, and visionOS. The terminal client uses that package.
+`.venv/bin/python tools/verify_drawing.py --bridge` runs the actual Swift demo
+against the renderer and captures previews; omit `--bridge` for preview only.
+
+## Dashboard
+
 A Python/OpenGL torus with a Mac preview and live multiview output to a
 Looking Glass Go, using the installed [Bridge Python SDK](https://github.com/Looking-Glass/Bridge-Python-SDK).
 Uses the existing `.venv`. Dependencies, including the iCalendar parser and
