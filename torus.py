@@ -21,6 +21,10 @@ from bridge_python_sdk.Rendering.Mesh import Mesh
 from bridge_python_sdk.Rendering.Shader import Shader
 from bridge_python_sdk.Rendering.Window import Window
 from schedule_feed import ScheduleFeed
+from drawing import Scene
+from drawing_renderer import DrawingRenderer
+from drawing_server import DrawingServer
+from pairing_ui import PairingScreen
 
 
 VERTEX = """#version 330 core
@@ -347,6 +351,9 @@ class TextStream:
                       for text, model, opacity, ticker in
                       text_layout(self.lines, now - self.started, self.aspect)]
         active = {item[0] for item in self.items}
+        self.prune_textures(active)
+
+    def prune_textures(self, active):
         for text, texture in list(self.textures.items()):
             if len(self.textures) <= 64:
                 break
@@ -374,7 +381,7 @@ class TextStream:
         self.textures[word] = texture
         return self.textures[word]
 
-    def draw(self, vp, eye, pose):
+    def draw(self, vp, eye, pose, items=None):
         self.shader.use()
         GL.glUniformMatrix4fv(self.uniforms["vp"], 1, GL.GL_TRUE, vp @ pose)
         GL.glUniform1i(self.uniforms["lettering"], 0)
@@ -383,7 +390,7 @@ class TextStream:
         GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
         GL.glDepthMask(GL.GL_FALSE)
         models = []
-        for texture, local, opacity, ticker in self.items:
+        for texture, local, opacity, ticker in self.items if items is None else items:
             model = pose @ local
             distance = np.linalg.norm(model[:3, 3] - eye)
             models.append((distance, texture, local, opacity, ticker))
@@ -423,11 +430,23 @@ class App:
         self.uniforms = {name: GL.glGetUniformLocation(self.shader.id, name)
                          for name in ("model", "vp", "eye")}
         self.text_stream = TextStream(args.message)
+        self.scene = Scene()
+        self.drawing = DrawingRenderer()
+        self.server = None
+        self.pair_screen = PairingScreen() if args.server else None
+        self.show_pairing = False
+        self.client_was_active = False
+        self.last_title = None
+        if args.server:
+            self.server = DrawingServer(args.host, args.port)
+            self.show_pairing = True
+            print(f"Drawing server: TLS {args.host}:{self.server.port}", flush=True)
         if not args.preview:
             self.connect()
         self.window.set_title(f"Torus | {self.status}")
         self.window.center_on_screen()
         self.window.set_cursor_pos_callback(self.cursor)
+        self.window.set_mouse_button_callback(self.mouse_button)
         self.window.set_scroll_callback(self.scroll)
         self.window.set_key_callback(self.key)
         glfw.set_window_focus_callback(self.window.handle, self.focus)
@@ -489,7 +508,7 @@ class App:
 
     def cursor(self, window, x, y):
         previous, self.last_cursor = self.last_cursor, (x, y)
-        if previous is None:
+        if previous is None or self.show_pairing:
             return
         dx, dy = x - previous[0], y - previous[1]
         left = glfw.get_mouse_button(window, glfw.MOUSE_BUTTON_LEFT) == glfw.PRESS
@@ -502,6 +521,8 @@ class App:
             self.pose.rotate(dx, dy, self.held(glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT))
 
     def scroll(self, window, dx, dy):
+        if self.show_pairing:
+            return
         if self.held(glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT):
             self.pose.move(dz=dy * 0.055)
         elif self.held(glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT):
@@ -509,15 +530,42 @@ class App:
         else:
             self.pose.move(dx * 0.035, dy * 0.035)
 
+    def mouse_button(self, window, button, action, mods):
+        if self.show_pairing and button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
+            x, y = glfw.get_cursor_pos(window)
+            command = self.pair_screen.hit(x, y, *self.window.get_size(), self.aspect)
+            if command == "refresh":
+                if self.server.pairing.active:
+                    self.server.disconnect_client()
+                else:
+                    self.server.pairing.issue()
+            elif command == "back":
+                self.show_pairing = False
+
     def key(self, window, key, scancode, action, mods):
         if action == glfw.PRESS:
             if key == glfw.KEY_ESCAPE:
                 glfw.set_window_should_close(window, True)
             elif key in (glfw.KEY_R, glfw.KEY_HOME):
                 self.pose.reset()
+            elif key == glfw.KEY_TAB:
+                self.scene.apply({"op": "mode", "mode": "drawing" if self.scene.mode == "dashboard" else "dashboard"})
+                self.show_pairing = False
+            elif key == glfw.KEY_P and self.server:
+                if mods & glfw.MOD_SHIFT:
+                    self.server.disconnect_client()
+                else:
+                    self.server.pairing.issue()
+                self.show_pairing = True
 
     def draw(self, view=0.5, quilt=False):
         vp, eye = camera(view, self.aspect, self.cone, quilt)
+        if self.show_pairing:
+            self.pair_screen.draw(vp, self.aspect)
+            return
+        if self.scene.mode == "drawing":
+            self.drawing.draw(self.scene, vp, eye)
+            return
         self.shader.use()
         GL.glUniformMatrix4fv(self.uniforms["model"], 1, GL.GL_TRUE, self.pose.matrix())
         GL.glUniformMatrix4fv(self.uniforms["vp"], 1, GL.GL_TRUE, vp)
@@ -527,7 +575,26 @@ class App:
 
     def frame(self):
         glfw.make_context_current(self.window.handle)
-        self.text_stream.update(time.monotonic())
+        if not self.show_pairing and self.scene.mode == "dashboard":
+            self.text_stream.update(time.monotonic())
+        if self.server:
+            self.server.process(self.scene.apply)
+            if self.server.pairing_needed.is_set():
+                self.server.pairing_needed.clear()
+                self.show_pairing = True
+            active = self.server.pairing.active
+            if active and not self.client_was_active:
+                self.show_pairing = False
+            self.client_was_active = active
+            if self.show_pairing:
+                self.pair_screen.update(self.server.pairing.snapshot(), self.server.port)
+        self.drawing.sync(self.scene)
+        title = f"Torus | {self.scene.mode.title()} | {self.status}"
+        if self.server:
+            title += " | Client paired" if self.server.pairing.active else f" | TLS :{self.server.port}"
+        if title != self.last_title:
+            self.window.set_title(title)
+            self.last_title = title
         GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glDisable(GL.GL_CULL_FACE)
         GL.glDisable(GL.GL_SCISSOR_TEST)
@@ -561,6 +628,8 @@ class App:
         print("Drag: rotate | Two-finger scroll: move | Shift-scroll: depth\n"
               "Shift-drag: move | Option-drag/scroll: roll | R: reset | Esc: quit",
               flush=True)
+        if self.server:
+            print("P: show pairing code | Shift+P: disconnect client and re-pair | Tab: dashboard/drawing", flush=True)
         frames, start = 0, time.monotonic()
         while not self.window.should_close():
             self.window.poll_events()
@@ -578,6 +647,8 @@ class App:
             self.window.swap_buffers()
 
     def close(self):
+        if self.server:
+            self.server.close()
         glfw.make_context_current(self.window.handle)
         if self.bridge:
             try:
@@ -590,6 +661,9 @@ class App:
         GL.glDeleteRenderbuffers(1, [self.depth])
         del self.mesh
         self.text_stream.close()
+        self.drawing.close()
+        if self.pair_screen:
+            self.pair_screen.close()
         GL.glDeleteProgram(self.shader.id)
         self.window.terminate()
 
@@ -597,6 +671,9 @@ class App:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preview", action="store_true", help="Run without Bridge")
+    parser.add_argument("--server", action="store_true", help="Enable paired TLS drawing control")
+    parser.add_argument("--host", default="0.0.0.0", help="Server bind address; default allows LAN clients")
+    parser.add_argument("--port", type=int, default=8765, help="TLS server port")
     parser.add_argument("--message", type=Path, default=Path.home() / "torusmessage.txt",
                         help="UTF-8 message file, reloaded automatically")
     parser.add_argument("--display", type=int, default=-1, help="Bridge display index (default: primary)")
