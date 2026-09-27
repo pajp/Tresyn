@@ -133,6 +133,8 @@ final class DrawingSession: ObservableObject {
     private var client: TorusClient?
     private var objectCounter = 0
     private var activeStrokeID: String?
+    private var activeStrokePointCount = 0
+    private var maximumStrokePointCount = 1_024
     private var strokeInitialized = false
     private var lastStrokePoint: [Double]?
     private var bufferedPoints: [[Double]] = []
@@ -178,7 +180,11 @@ final class DrawingSession: ObservableObject {
         status = newClient.canResume() ? "Reconnecting securely with \(cleanHost)…" : "Pairing securely with \(cleanHost)…"
         Task {
             do {
-                _ = try await newClient.connect(pairingCode: pairingCode.isEmpty ? nil : pairingCode, approvedCertificate: approvedCertificate)
+                let capabilities = try await newClient.connect(
+                    pairingCode: pairingCode.isEmpty ? nil : pairingCode,
+                    approvedCertificate: approvedCertificate
+                )
+                maximumStrokePointCount = max(2, capabilities.limits["points_per_object"] ?? 1_024)
                 _ = try await newClient.setMode(.drawing)
                 let scene = try await newClient.state()
                 previewObjects = scene.objects.map(previewObject)
@@ -551,6 +557,7 @@ final class DrawingSession: ObservableObject {
         guard isConnected, !isTransferringScene, selectedTool == .stroke else { return }
         objectCounter += 1
         activeStrokeID = "vision-stroke-\(objectCounter)"
+        activeStrokePointCount = 0
         strokeInitialized = false
         lastStrokePoint = worldPoint(location, in: size)
         bufferedPoints = []
@@ -565,11 +572,28 @@ final class DrawingSession: ObservableObject {
 
         if !strokeInitialized {
             strokeInitialized = true
+            activeStrokePointCount = 2
             let stroke = DrawingObject(id: id, type: .polyline, color: rgb, radius: 0.022, points: [last, next])
             previewObjects.append(previewObject(stroke))
             enqueueStrokeStart(stroke, using: client)
             scheduleStrokeFlush()
+        } else if activeStrokePointCount >= maximumStrokePointCount {
+            flushStroke()
+            objectCounter += 1
+            let continuationID = "vision-stroke-\(objectCounter)"
+            activeStrokeID = continuationID
+            activeStrokePointCount = 2
+            let continuation = DrawingObject(
+                id: continuationID,
+                type: .polyline,
+                color: rgb,
+                radius: 0.022,
+                points: [last, next]
+            )
+            previewObjects.append(previewObject(continuation))
+            enqueueStrokeStart(continuation, using: client)
         } else {
+            activeStrokePointCount += 1
             bufferedPoints.append(next)
             appendPreviewPoint(next, to: id)
         }
@@ -580,6 +604,7 @@ final class DrawingSession: ObservableObject {
         flushTask = nil
         flushStroke()
         activeStrokeID = nil
+        activeStrokePointCount = 0
         if strokeInitialized, let snapshot = pendingStrokeSnapshot {
             recordChange(from: snapshot)
         }
@@ -622,7 +647,7 @@ final class DrawingSession: ObservableObject {
             await previous?.value
             guard !Task.isCancelled else { return }
             do { _ = try await client.put(stroke) }
-            catch { status = "Couldn’t start stroke: \(error.localizedDescription)" }
+            catch { status = "Couldn’t start stroke: \(errorMessage(error))" }
         }
     }
 
@@ -632,8 +657,12 @@ final class DrawingSession: ObservableObject {
             await previous?.value
             guard !Task.isCancelled else { return }
             do { _ = try await client.append(to: id, points: points) }
-            catch { status = "Stroke interrupted: \(error.localizedDescription)" }
+            catch { status = "Stroke interrupted: \(errorMessage(error))" }
         }
+    }
+
+    private func errorMessage(_ error: Error) -> String {
+        (error as? TorusClientError)?.description ?? error.localizedDescription
     }
 
     // Exact display-plane dimensions documented by the Drawing Server for Looking Glass Go.
