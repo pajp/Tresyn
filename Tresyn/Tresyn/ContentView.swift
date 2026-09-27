@@ -658,12 +658,10 @@ struct ContentView: View {
     @State private var isMovingSelection = false
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if session.isConnected { studio } else { pairing }
-            }
-            .navigationTitle("Tresyn")
+        Group {
+            if session.isConnected { studio } else { pairing }
         }
+        .frame(minWidth: 700, minHeight: 520)
         .alert("Server identity changed", isPresented: Binding(
             get: { session.pendingCertificate != nil },
             set: { if !$0 { session.pendingCertificate = nil } }
@@ -733,17 +731,27 @@ struct ContentView: View {
     }
 
     private var studio: some View {
-        ScrollView([.horizontal, .vertical]) {
-            HStack(spacing: 24) {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Tools").font(.headline)
-                ForEach(DrawingSession.Tool.allCases) { tool in
-                    Button { session.selectedTool = tool } label: {
-                        Label(tool.rawValue, systemImage: tool.symbol).frame(width: 118, alignment: .leading)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(session.selectedTool == tool ? .accentColor : .gray)
-                }
+        GeometryReader { geometry in
+            HStack(alignment: .top, spacing: 24) {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Tools").font(.headline)
+                        LazyVGrid(
+                            columns: [GridItem(.flexible()), GridItem(.flexible())],
+                            spacing: 10
+                        ) {
+                            ForEach(DrawingSession.Tool.allCases) { tool in
+                                Button { session.selectedTool = tool } label: {
+                                    Label(tool.rawValue, systemImage: tool.symbol)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                        .minimumScaleFactor(0.75)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(session.selectedTool == tool ? .accentColor : .gray)
+                            }
+                        }
                 Divider()
                 HStack {
                     Button { session.undo() } label: {
@@ -765,14 +773,13 @@ struct ContentView: View {
                         Button { session.rotateSelectedObject(by: .degrees(15)) } label: {
                             Label("Rotate right", systemImage: "rotate.right")
                         }
+                        Button(role: .destructive) {
+                            session.deleteSelectedObject()
+                        } label: {
+                            Label("Delete Selected", systemImage: "trash")
+                        }
                     }
                     .labelStyle(.iconOnly)
-                    .disabled(session.selectedObjectID == nil)
-                    Button(role: .destructive) {
-                        session.deleteSelectedObject()
-                    } label: {
-                        Label("Delete Selected", systemImage: "trash")
-                    }
                     .disabled(session.selectedObjectID == nil)
                 }
                 Divider()
@@ -783,8 +790,6 @@ struct ContentView: View {
                 }
                 .pickerStyle(.menu)
                 .tint(session.color)
-                Text("Selected: \(session.selectedColorName)")
-                    .font(.subheadline.weight(.medium)).foregroundStyle(session.color)
                 if session.selectedTool == .select {
                     if let selectedDepth = session.selectedObjectDepth {
                         Text("Object depth \(selectedDepth, format: .number.precision(.fractionLength(2)))")
@@ -796,9 +801,6 @@ struct ContentView: View {
                                 session.endChangingSelectedDepth()
                             }
                         }
-                        Text(depthDescription(selectedDepth))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     } else {
                         Text("Select an object to change its depth")
                             .font(.caption)
@@ -808,50 +810,65 @@ struct ContentView: View {
                     Text("Depth \(session.depth, format: .number.precision(.fractionLength(2)))")
                         .font(.headline)
                     Slider(value: $session.depth, in: -0.65...0.65)
-                    Text(depthDescription(session.depth))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-                Spacer()
-                Button {
-                    isImportingScene = true
-                } label: {
-                    Label("Open Scene", systemImage: "folder")
-                }
-                .disabled(session.isTransferringScene)
-                Button {
-                    Task {
-                        do {
-                            exportDocument = SceneExportDocument(archive: try await session.captureScene())
-                            isExportingScene = true
-                        } catch {
-                            session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
-                        }
                     }
-                } label: {
-                    Label("Save Scene", systemImage: "square.and.arrow.down")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 12)
                 }
-                .disabled(session.isTransferringScene)
-                Button("Clear display", role: .destructive) { session.clear() }
-                    .disabled(session.isTransferringScene)
-                Button("Disconnect") { session.disconnect() }
-                    .disabled(session.isTransferringScene)
-            }
-            .frame(width: 205).padding()
+                .frame(width: 220)
 
-            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(instructionText)
                         .font(.headline)
                     Spacer()
                     Label("Live", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.green)
                 }
-                drawingSurface
-                Text(session.status).font(.footnote).foregroundStyle(.secondary)
+                    drawingSurface(maxHeight: max(160, geometry.size.height - 170))
+                    Text(session.status)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    sceneActions
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            }
-            .padding(26)
+            .padding(24)
         }
+    }
+
+    private var sceneActions: some View {
+        HStack(spacing: 10) {
+            Button {
+                isImportingScene = true
+            } label: {
+                Label("Open", systemImage: "folder")
+            }
+            Button {
+                Task {
+                    do {
+                        exportDocument = SceneExportDocument(archive: try await session.captureScene())
+                        isExportingScene = true
+                    } catch {
+                        session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
+                    }
+                }
+            } label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+            Spacer()
+            Button("Clear", systemImage: "trash", role: .destructive) {
+                session.clear()
+            }
+            Button("Disconnect", systemImage: "xmark.circle") {
+                session.disconnect()
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        .disabled(session.isTransferringScene)
     }
 
     private var selectedDepthBinding: Binding<Double> {
@@ -923,7 +940,7 @@ struct ContentView: View {
         }
     }
 
-    private var drawingSurface: some View {
+    private func drawingSurface(maxHeight: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack {
                 RealityDrawingPreview(objects: session.previewObjects, selectedObjectID: session.selectedObjectID)
@@ -955,8 +972,10 @@ struct ContentView: View {
             }
             .gesture(directDrawingGesture(in: geometry.size))
         }
-        .aspectRatio(2.925 / 5.2, contentMode: .fit)
-        .frame(maxWidth: 360, maxHeight: 640)
+        .frame(
+            width: min(400, maxHeight * 2.925 / 5.2),
+            height: min(maxHeight, 400 * 5.2 / 2.925)
+        )
         .clipShape(RoundedRectangle(cornerRadius: 28))
     }
 }

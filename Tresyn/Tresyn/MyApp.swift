@@ -5,5 +5,7 @@ import SwiftUI
         WindowGroup {
             ContentView()
         }
+        .defaultSize(width: 900, height: 650)
+        .windowResizability(.contentMinSize)
     }
 }
