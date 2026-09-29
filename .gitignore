@@ -5,3 +5,6 @@ __pycache__/
 schedule.local.json
 .drawing-local/
 .build/
+video/
+Tresyn/Tresyn.xcodeproj/project.xcworkspace/xcuserdata/
+swift-client/.swiftpm/xcode/xcuserdata/
