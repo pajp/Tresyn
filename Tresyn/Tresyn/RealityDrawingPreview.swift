@@ -15,7 +15,12 @@ struct RealityDrawingPreview: View {
 
     let objects: [DrawingSession.PreviewObject]
     let selectedObjectID: String?
+    @Binding var cameraControlsEnabled: Bool
+    let resetRequest: Int
     @State private var root = Entity()
+    #if os(macOS)
+    @State private var camera = Entity()
+    #endif
 
     var body: some View {
         RealityView { content in
@@ -27,8 +32,14 @@ struct RealityDrawingPreview: View {
         } update: { _ in
             updateScene()
         }
+        .macOSCameraControls(isEnabled: cameraControlsEnabled)
         .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.12), lineWidth: 1))
+        #if os(macOS)
+        .onChange(of: resetRequest) {
+            resetMacOSCamera()
+        }
+        #endif
     }
 
     @MainActor
@@ -50,14 +61,19 @@ struct RealityDrawingPreview: View {
     #if os(macOS)
     @MainActor
     private func macOSCamera() -> Entity {
-        let camera = Entity()
         var component = OrthographicCameraComponent()
         // Orthographic scale is the vertical half-extent of the view volume.
         component.scale = Self.displayWorldHeight * Self.macOSSceneScale / 2
         camera.components.set(component)
-        camera.look(at: .zero, from: [0, 0, 2], relativeTo: nil)
+        resetMacOSCamera()
         return camera
     }
+
+    @MainActor
+    private func resetMacOSCamera() {
+        camera.look(at: .zero, from: [0, 0, 2], relativeTo: nil)
+    }
+
     #endif
 
     @MainActor
@@ -224,6 +240,17 @@ struct RealityDrawingPreview: View {
         descriptor.normals = .init(normals)
         descriptor.primitives = .triangles(indices)
         return (try? MeshResource.generate(from: [descriptor])) ?? .generateSphere(radius: 0.001)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func macOSCameraControls(isEnabled: Bool) -> some View {
+        #if os(macOS)
+        realityViewCameraControls(isEnabled ? .orbit : .none)
+        #else
+        self
+        #endif
     }
 }
 

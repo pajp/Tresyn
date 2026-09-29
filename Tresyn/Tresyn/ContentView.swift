@@ -12,12 +12,21 @@ struct ContentView: View {
     @State private var handLocation: CGPoint?
     @State private var isDirectInteractionActive = false
     @State private var isMovingSelection = false
+    @State private var isAdjustingView = false
+    @State private var viewResetRequest = 0
 
     var body: some View {
         Group {
             if session.isConnected { studio } else { pairing }
         }
-        .frame(minWidth: 700, minHeight: 520)
+        .frame(
+            minWidth: 700,
+            idealWidth: 860,
+            maxWidth: 900,
+            minHeight: 520,
+            idealHeight: 820,
+            maxHeight: 1_100
+        )
         .alert("Server identity changed", isPresented: Binding(
             get: { session.pendingCertificate != nil },
             set: { if !$0 { session.pendingCertificate = nil } }
@@ -88,7 +97,17 @@ struct ContentView: View {
 
     private var studio: some View {
         GeometryReader { geometry in
-            HStack(alignment: .top, spacing: 24) {
+            let horizontalPadding: CGFloat = 48
+            let columnSpacing: CGFloat = geometry.size.width < 760 ? 14 : 24
+            let toolsWidth: CGFloat = geometry.size.width < 760 ? 180 : 220
+            let availableCanvasWidth = max(
+                220,
+                geometry.size.width - horizontalPadding - columnSpacing - toolsWidth
+            )
+            let availableCanvasHeight = max(160, geometry.size.height - 170)
+            let canvasWidth = min(520, availableCanvasWidth, availableCanvasHeight * 2.925 / 5.2)
+
+            HStack(alignment: .top, spacing: columnSpacing) {
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Tools").font(.headline)
@@ -172,59 +191,118 @@ struct ContentView: View {
                     .padding(.horizontal, 8)
                     .padding(.bottom, 12)
                 }
-                .frame(width: 220)
+                .frame(width: toolsWidth)
 
                 VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(instructionText)
                         .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
                     Spacer()
-                    Label("Live", systemImage: "dot.radiowaves.left.and.right").foregroundStyle(.green)
+                    Text("Connected")
+                        .foregroundStyle(.green)
+                        .fixedSize()
                 }
-                    drawingSurface(maxHeight: max(160, geometry.size.height - 170))
-                    Text(session.status)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    #if os(macOS)
+                    HStack(spacing: 8) {
+                    Button {
+                        isAdjustingView.toggle()
+                    } label: {
+                        Label("Inspect", systemImage: "rotate.3d")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(isAdjustingView ? .accentColor : .gray)
+                    Button {
+                        viewResetRequest += 1
+                        isAdjustingView = false
+                    } label: {
+                        Label("Front", systemImage: "viewfinder")
+                    }
+                    .buttonStyle(.bordered)
+                    Spacer()
+                    }
+                    .controlSize(.small)
+                    #endif
+                    drawingSurface(maxHeight: availableCanvasHeight, maxWidth: canvasWidth)
+                    if let errorStatus {
+                        Text(errorStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
                     sceneActions
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(width: canvasWidth)
+                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: 840, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .center)
             .padding(24)
         }
     }
 
     private var sceneActions: some View {
-        HStack(spacing: 10) {
-            Button {
-                isImportingScene = true
-            } label: {
-                Label("Open", systemImage: "folder")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                openSceneButton
+                saveSceneButton
+                clearSceneButton
+                disconnectButton
             }
-            Button {
-                Task {
-                    do {
-                        exportDocument = SceneExportDocument(archive: try await session.captureScene())
-                        isExportingScene = true
-                    } catch {
-                        session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
-                    }
+            .fixedSize(horizontal: true, vertical: false)
+            VStack(spacing: 8) {
+                HStack(spacing: 10) {
+                    openSceneButton
+                    saveSceneButton
                 }
-            } label: {
-                Label("Save", systemImage: "square.and.arrow.down")
+                HStack(spacing: 10) {
+                    clearSceneButton
+                    disconnectButton
+                }
             }
-            Spacer()
-            Button("Clear", systemImage: "trash", role: .destructive) {
-                session.clear()
-            }
-            Button("Disconnect", systemImage: "xmark.circle") {
-                session.disconnect()
-            }
+            .fixedSize(horizontal: true, vertical: false)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
         .controlSize(.small)
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
         .disabled(session.isTransferringScene)
+    }
+
+    private var openSceneButton: some View {
+        Button {
+            isImportingScene = true
+        } label: {
+            Label("Open", systemImage: "folder")
+        }
+    }
+
+    private var saveSceneButton: some View {
+        Button {
+            Task {
+                do {
+                    exportDocument = SceneExportDocument(archive: try await session.captureScene())
+                    isExportingScene = true
+                } catch {
+                    session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
+                }
+            }
+        } label: {
+            Label("Save", systemImage: "square.and.arrow.down")
+        }
+    }
+
+    private var clearSceneButton: some View {
+        Button("Clear", systemImage: "trash", role: .destructive) {
+            session.clear()
+        }
+    }
+
+    private var disconnectButton: some View {
+        Button("Disconnect", systemImage: "xmark.circle") {
+            session.disconnect()
+        }
     }
 
     private var selectedDepthBinding: Binding<Double> {
@@ -234,6 +312,14 @@ struct ContentView: View {
         )
     }
 
+    private var errorStatus: String? {
+        let errorPrefixes = [
+            "Couldn’t", "Opening failed", "Stroke interrupted", "Connection lost",
+            "The server identity changed", "This server’s identity changed"
+        ]
+        return errorPrefixes.contains(where: session.status.hasPrefix) ? session.status : nil
+    }
+
     private func depthDescription(_ value: Double) -> String {
         if value > 0 { return "In front of the display plane" }
         if value < 0 { return "Behind the display plane" }
@@ -241,7 +327,12 @@ struct ContentView: View {
     }
 
     private var instructionText: String {
-        switch session.selectedTool {
+        #if os(macOS)
+        if isAdjustingView {
+            return "Drag the canvas to orbit, then return to Front to continue drawing"
+        }
+        #endif
+        return switch session.selectedTool {
         case .select:
             "Touch an object to select it, then pinch and drag to move"
         case .stroke:
@@ -296,10 +387,15 @@ struct ContentView: View {
         }
     }
 
-    private func drawingSurface(maxHeight: CGFloat) -> some View {
+    private func drawingSurface(maxHeight: CGFloat, maxWidth: CGFloat) -> some View {
         GeometryReader { geometry in
             ZStack {
-                RealityDrawingPreview(objects: session.previewObjects, selectedObjectID: session.selectedObjectID)
+                RealityDrawingPreview(
+                    objects: session.previewObjects,
+                    selectedObjectID: session.selectedObjectID,
+                    cameraControlsEnabled: $isAdjustingView,
+                    resetRequest: viewResetRequest
+                )
                 if let handLocation {
                     Circle()
                         .fill(session.color)
@@ -326,11 +422,11 @@ struct ContentView: View {
                     if !isDirectInteractionActive { handLocation = nil }
                 }
             }
-            .gesture(directDrawingGesture(in: geometry.size))
+            .gesture(directDrawingGesture(in: geometry.size), isEnabled: !isAdjustingView)
         }
         .frame(
-            width: min(400, maxHeight * 2.925 / 5.2),
-            height: min(maxHeight, 400 * 5.2 / 2.925)
+            width: min(maxWidth, maxHeight * 2.925 / 5.2),
+            height: min(maxHeight, maxWidth * 5.2 / 2.925)
         )
         .clipShape(RoundedRectangle(cornerRadius: 28))
     }
