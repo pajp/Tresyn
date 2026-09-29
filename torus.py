@@ -535,10 +535,7 @@ class App:
             x, y = glfw.get_cursor_pos(window)
             command = self.pair_screen.hit(x, y, *self.window.get_size(), self.aspect)
             if command == "refresh":
-                if self.server.pairing.active:
-                    self.server.disconnect_client()
-                else:
-                    self.server.pairing.issue()
+                self.server.pairing.issue()
             elif command == "back":
                 self.show_pairing = False
 
@@ -583,15 +580,17 @@ class App:
                 self.server.pairing_needed.clear()
                 self.show_pairing = True
             active = self.server.pairing.active
-            if active and not self.client_was_active:
+            pairing_state = self.server.pairing.snapshot()
+            if active and (not self.client_was_active or pairing_state["status"] == "connected"):
                 self.show_pairing = False
             self.client_was_active = active
             if self.show_pairing:
-                self.pair_screen.update(self.server.pairing.snapshot(), self.server.port)
+                self.pair_screen.update(pairing_state, self.server.port)
         self.drawing.sync(self.scene)
         title = f"Torus | {self.scene.mode.title()} | {self.status}"
         if self.server:
-            title += " | Client paired" if self.server.pairing.active else f" | TLS :{self.server.port}"
+            count = self.server.pairing.active_count
+            title += f" | {count} client{'s' if count != 1 else ''} paired" if count else f" | TLS :{self.server.port}"
         if title != self.last_title:
             self.window.set_title(title)
             self.last_title = title

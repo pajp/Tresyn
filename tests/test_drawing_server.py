@@ -64,14 +64,31 @@ class ServerTests(unittest.TestCase):
         self.assertTrue(self.request(client, "delete", object_id="sphere")["ok"])
         self.assertTrue(self.request(client, "clear")["ok"])
 
-    def test_pair_required_and_one_writer(self):
+    def test_pair_required_and_multiple_writers(self):
         client = self.connect()
         self.assertFalse(self.request(client, "clear")["ok"])
         good = self.connect()
         code = self.server.pairing.code
         self.assertTrue(self.request(good, "pair", code=code)["ok"])
+        self.server.pairing.issue()
         other = self.connect()
-        self.assertFalse(self.request(other, "pair", code=code)["ok"])
+        self.assertTrue(self.request(other, "pair", code=self.server.pairing.code)["ok"])
+        self.assertTrue(self.request(good, "put", object={"id": "first", "type": "sphere"})["ok"])
+        result = self.request(other, "put", object={"id": "second", "type": "box"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(set(result["result"]["object_ids"]), {"first", "second"})
+
+    def test_multiple_paired_clients_can_resume_together(self):
+        first = self.connect()
+        first_pairing = self.request(first, "pair", code=self.server.pairing.code)
+        self.server.pairing.issue()
+        second = self.connect()
+        second_pairing = self.request(second, "pair", code=self.server.pairing.code)
+
+        first_resumed = self.connect()
+        second_resumed = self.connect()
+        self.assertTrue(self.request(first_resumed, "resume", token=first_pairing["result"]["resume_token"])["ok"])
+        self.assertTrue(self.request(second_resumed, "resume", token=second_pairing["result"]["resume_token"])["ok"])
 
     def test_paired_client_can_resume_without_a_display_code(self):
         client = self.connect()

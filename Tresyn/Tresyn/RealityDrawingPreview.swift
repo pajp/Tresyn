@@ -8,6 +8,11 @@ import RealityKit
 import TorusDrawingClient
 
 struct RealityDrawingPreview: View {
+    #if os(macOS)
+    private static let macOSSceneScale: Float = 0.24
+    private static let displayWorldHeight: Float = 5.2
+    #endif
+
     let objects: [DrawingSession.PreviewObject]
     let selectedObjectID: String?
     @State private var root = Entity()
@@ -16,10 +21,12 @@ struct RealityDrawingPreview: View {
         RealityView { content in
             configureRoot()
             content.add(root)
+            #if os(macOS)
+            content.add(macOSCamera())
+            #endif
         } update: { _ in
             updateScene()
         }
-        .padding(8)
         .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.12), lineWidth: 1))
     }
@@ -32,11 +39,26 @@ struct RealityDrawingPreview: View {
         // This preserves relative Z depth without allowing negative-Z objects to
         // fall behind the SwiftUI backing layer and become occluded.
         root.position.z = 0.05
+        #elseif os(macOS)
+        root.scale = SIMD3(repeating: Self.macOSSceneScale)
         #else
         root.scale = SIMD3(repeating: 0.24)
         #endif
         updateScene()
     }
+
+    #if os(macOS)
+    @MainActor
+    private func macOSCamera() -> Entity {
+        let camera = Entity()
+        var component = OrthographicCameraComponent()
+        // Orthographic scale is the vertical half-extent of the view volume.
+        component.scale = Self.displayWorldHeight * Self.macOSSceneScale / 2
+        camera.components.set(component)
+        camera.look(at: .zero, from: [0, 0, 2], relativeTo: nil)
+        return camera
+    }
+    #endif
 
     @MainActor
     private func updateScene() {

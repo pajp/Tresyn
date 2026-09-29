@@ -49,12 +49,16 @@ class Pairing:
         self.expires = 0
         self.blocked_until = 0
         self.failures = 0
-        self.active = False
+        self.active_count = 0
         self.issue()
+
+    @property
+    def active(self):
+        return self.active_count > 0
 
     def issue(self):
         with self.lock:
-            if self.active or time.monotonic() < self.blocked_until:
+            if time.monotonic() < self.blocked_until:
                 return
             self.code = f"{secrets.randbelow(1000000):06d}"
             self.expires = time.monotonic() + 120
@@ -66,8 +70,6 @@ class Pairing:
     def authenticate(self, code):
         with self.lock:
             now = time.monotonic()
-            if self.active:
-                return "client_busy"
             if now < self.blocked_until:
                 return "pairing_locked"
             if now >= self.expires or not self.code:
@@ -80,29 +82,30 @@ class Pairing:
                     self.blocked_until = now + 60
                 return "pairing_locked" if self.failures >= 5 else "invalid_code"
             self.code = ""
-            self.active = True
+            self.active_count += 1
             return None
 
     def release(self):
         with self.lock:
-            self.active = False
-        self.issue()
+            self.active_count = max(0, self.active_count - 1)
+            inactive = self.active_count == 0
+        if inactive:
+            self.issue()
+        return inactive
 
     def claim(self):
-        """Reserve the one writer slot for a previously paired client."""
+        """Register a previously paired client."""
         with self.lock:
-            if self.active:
-                return "client_busy"
-            self.active = True
+            self.active_count += 1
             return None
 
     def display(self):
         with self.lock:
-            if self.active:
-                return ["Drawing client connected"]
             if time.monotonic() < self.blocked_until:
                 return ["Pairing locked", "Press P after one minute"]
             seconds = max(0, int(self.expires - time.monotonic()))
+            if self.active and (not self.code or not seconds):
+                return ["Drawing client connected"]
             if not self.code or not seconds:
                 return ["Pairing expired", "Press P for a new code"]
             return ["Pair with this display", f"Code: {self.code}", f"Expires in {seconds}s"]
@@ -112,8 +115,9 @@ class Pairing:
             now = time.monotonic()
             seconds = max(0, int(self.expires - now))
             retry = max(0, int(self.blocked_until - now) + 1)
-            status = ("connected" if self.active else "locked" if now < self.blocked_until
-                      else "ready" if self.code and seconds else "expired")
+            status = ("locked" if now < self.blocked_until
+                      else "ready" if self.code and seconds
+                      else "connected" if self.active else "expired")
             return {"status": status, "code": self.code if status == "ready" else "",
                     "remaining": seconds, "retry_after": retry}
 
@@ -123,11 +127,11 @@ class ResumeCredentials:
     def __init__(self, directory):
         self.file = Path(directory) / "drawing-clients.json"
         self.lock = threading.Lock()
-        self.digests = set()
+        self.digests = []
         try:
             values = json.loads(self.file.read_text())
             if isinstance(values, list) and all(isinstance(value, str) and len(value) == 64 for value in values):
-                self.digests = set(values)
+                self.digests = list(dict.fromkeys(values))[-8:]
         except (OSError, ValueError, json.JSONDecodeError):
             pass
 
@@ -135,12 +139,13 @@ class ResumeCredentials:
         token = secrets.token_urlsafe(32)
         digest = hashlib.sha256(token.encode()).hexdigest()
         with self.lock:
-            self.digests.add(digest)
-            # Keep a small recoverable set for intentionally paired clients.
-            if len(self.digests) > 8:
-                self.digests = set(sorted(self.digests)[-8:])
+            if digest in self.digests:
+                self.digests.remove(digest)
+            self.digests.append(digest)
+            # Keep the eight most recently paired clients.
+            self.digests = self.digests[-8:]
             temporary = self.file.with_suffix(".tmp")
-            temporary.write_text(json.dumps(sorted(self.digests)))
+            temporary.write_text(json.dumps(self.digests))
             temporary.chmod(0o600)
             temporary.replace(self.file)
             self.file.chmod(0o600)
@@ -177,7 +182,7 @@ class DrawingServer:
         self.stop = threading.Event()
         self.slots = threading.BoundedSemaphore(4)
         self.connections = set()
-        self.authenticated_connection = None
+        self.authenticated_connections = set()
         self.pairing_needed = threading.Event()
         self.lock = threading.Lock()
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -264,7 +269,7 @@ class DrawingServer:
                             break
                         authenticated = True
                         with self.lock:
-                            self.authenticated_connection = connection
+                            self.authenticated_connections.add(connection)
                         connection.settimeout(60)
                         self._send(connection, {"v": 1, "id": request_id, "ok": True,
                                    "result": {"protocol": "torus-drawing", "primitives": PRIMITIVES,
@@ -300,9 +305,9 @@ class DrawingServer:
             connection.close()
             if authenticated:
                 with self.lock:
-                    self.authenticated_connection = None
-                self.pairing.release()
-                self.pairing_needed.set()
+                    self.authenticated_connections.discard(connection)
+                if self.pairing.release():
+                    self.pairing_needed.set()
             self.slots.release()
 
     @staticmethod
@@ -310,15 +315,15 @@ class DrawingServer:
         connection.sendall(json.dumps(message, allow_nan=False, separators=(",", ":")).encode() + b"\n")
 
     def disconnect_client(self):
-        """Local recovery only; remote unauthenticated callers cannot evict a client."""
+        """Disconnect all clients locally; remote unauthenticated callers cannot evict them."""
         with self.lock:
-            connection = self.authenticated_connection
-            if connection is not None:
+            connections = tuple(self.authenticated_connections)
+            for connection in connections:
                 try:
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
-        if connection is None:
+        if not connections:
             self.pairing.issue()
             self.pairing_needed.set()
 

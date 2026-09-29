@@ -74,7 +74,7 @@ void main() { color = texture(panel, uv); }
         label = {"ready": f"Expires in {seconds // 60}:{seconds % 60:02d}",
                  "expired": "Generate a new code to connect.",
                  "locked": f"Try again in {state['retry_after']} seconds.",
-                 "connected": "Disconnect below to pair another device."}[status]
+                 "connected": "Generate a code to pair another device."}[status]
         text(64, 729, label, 20, muted)
         draw.rectangle((64, 778, 656, 782), fill="#304342")
         if status == "ready":
@@ -82,7 +82,7 @@ void main() { color = texture(panel, uv); }
         text(64, 829, "SERVER", 14, muted, bold=True)
         text(64, 858, self.host, 24, max_width=580)
         text(64, 904, f"Port {port}    /    TLS encrypted", 18, cyan)
-        labels = {"refresh": "Disconnect & re-pair" if status == "connected" else "New code",
+        labels = {"refresh": "New code",
                   "back": "Back to scene"}
         for action, rectangle in self.BUTTONS.items():
             left, top, right, bottom = rectangle

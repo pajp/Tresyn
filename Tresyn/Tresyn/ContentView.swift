@@ -317,7 +317,7 @@ struct ContentView: View {
                 .padding()
             }
             .contentShape(Rectangle())
-            .handPointerBehavior(.drawing)
+            .drawingPointerBehavior()
             .onContinuousHover { phase in
                 switch phase {
                 case .active(let location):
@@ -333,6 +333,17 @@ struct ContentView: View {
             height: min(maxHeight, 400 * 5.2 / 2.925)
         )
         .clipShape(RoundedRectangle(cornerRadius: 28))
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func drawingPointerBehavior() -> some View {
+        #if os(visionOS)
+        handPointerBehavior(.drawing)
+        #else
+        self
+        #endif
     }
 }
 

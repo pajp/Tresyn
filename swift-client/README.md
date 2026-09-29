@@ -68,8 +68,7 @@ for the first pairing, an unknown client, or an approved certificate replacement
 
 - `.server(code, message)`: display the message. For `invalid_code` or
   `pairing_expired`, ask for a new display code and call `connect` again on the
-  same client. `client_busy` means the user must close the other client or use
-  the server's local disconnect control. `pairing_locked` requires waiting.
+  same client. `pairing_locked` requires waiting.
 - `.certificateChanged(fingerprint)`: show a warning and ask the user whether
   to trust the changed server. Only if approved, call
   `connect(pairingCode: newCode, approvedCertificate: fingerprint)` with that

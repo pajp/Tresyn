@@ -35,12 +35,12 @@ On its first connection, a client authenticates using the six-digit code on the 
 ```
 
 The code expires after 120 seconds and is consumed on successful pairing.
-Five incorrect attempts lock pairing globally for 60 seconds. One authenticated
-client controls the scene at a time; other clients are rejected. Every new
-connection must pair, including reconnects. Disconnecting automatically shows a
-fresh code; the drawing is retained behind the pairing screen. If the previous
-client is stuck or still connected, press **Shift+P** locally to disconnect it,
-or press **P** and click **Disconnect & re-pair**.
+Five incorrect attempts lock pairing globally for 60 seconds. Up to four clients
+can connect and control the shared scene concurrently. Each new client pairs with
+its own single-use code; press **P** to show a fresh code without disconnecting
+clients that are already drawing. Disconnecting the last client automatically
+shows a fresh code, and the drawing is retained behind the pairing screen. Press
+**Shift+P** locally to disconnect all clients.
 The short code authenticates the client; TLS encrypts the connection and the
 remembered certificate detects server identity changes after initial pairing.
 
@@ -58,7 +58,8 @@ The token is accepted only inside TLS after the saved certificate has matched.
 It is never a replacement for certificate-change confirmation: a changed server
 certificate requires user approval and a fresh display-code pairing. A new app
 installation, a deleted client identity, or an unknown token also requires the
-display code. `resume` can return `unknown_client` or `client_busy`.
+display code. `resume` can return `unknown_client` when its credential is no
+longer known.
 
 Use UTF-8 JSON objects, one per LF-terminated line, inside TLS. Maximum frame
 size is 262144 bytes including LF. TCP reads may contain partial or multiple
