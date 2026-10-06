@@ -52,7 +52,16 @@ class ServerTests(unittest.TestCase):
 
     def request(self, client, op, **fields):
         client[0].sendall(json.dumps({"v": 1, "id": "test", "op": op, **fields}).encode() + b"\n")
-        return json.loads(client[1].readline())
+        while True:
+            message = json.loads(client[1].readline())
+            if message.get("id") == "test":
+                return message
+
+    def event(self, client):
+        message = json.loads(client[1].readline())
+        self.assertEqual(message.get("v"), 1)
+        self.assertEqual(message.get("event"), "scene_changed")
+        return message["result"]
 
     def test_authenticated_commands_and_invalid_command(self):
         client = self.connect()
@@ -89,6 +98,19 @@ class ServerTests(unittest.TestCase):
         second_resumed = self.connect()
         self.assertTrue(self.request(first_resumed, "resume", token=first_pairing["result"]["resume_token"])["ok"])
         self.assertTrue(self.request(second_resumed, "resume", token=second_pairing["result"]["resume_token"])["ok"])
+
+    def test_scene_changes_are_pushed_to_other_clients(self):
+        first = self.connect()
+        self.assertTrue(self.request(first, "pair", code=self.server.pairing.code)["ok"])
+        self.server.pairing.issue()
+        second = self.connect()
+        self.assertTrue(self.request(second, "pair", code=self.server.pairing.code)["ok"])
+
+        applied = self.request(first, "put", object={"id": "shared", "type": "sphere"})["result"]
+        pushed = self.event(second)
+
+        self.assertEqual(pushed, applied)
+        self.assertEqual(pushed["object_ids"], ["shared"])
 
     def test_paired_client_can_resume_without_a_display_code(self):
         client = self.connect()

@@ -162,10 +162,12 @@ class ResumeCredentials:
 @dataclass
 class Pending:
     message: dict
+    connection: object
     done: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     cancelled: bool = False
     response: dict = field(default_factory=dict)
+    broadcast_scene: dict = None
 
 
 def error(request_id, code, detail):
@@ -183,6 +185,7 @@ class DrawingServer:
         self.slots = threading.BoundedSemaphore(4)
         self.connections = set()
         self.authenticated_connections = set()
+        self.send_locks = {}
         self.pairing_needed = threading.Event()
         self.lock = threading.Lock()
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -211,6 +214,7 @@ class DrawingServer:
                 continue
             with self.lock:
                 self.connections.add(connection)
+                self.send_locks[connection] = threading.Lock()
             threading.Thread(target=self._client, args=(connection,), daemon=True).start()
 
     def _client(self, raw):
@@ -221,8 +225,10 @@ class DrawingServer:
             raw.settimeout(10)
             connection = self.context.wrap_socket(raw, server_side=True, do_handshake_on_connect=False)
             with self.lock:
+                send_lock = self.send_locks.pop(raw)
                 self.connections.discard(raw)
                 self.connections.add(connection)
+                self.send_locks[connection] = send_lock
             connection.do_handshake()
             with connection.makefile("rb") as reader:
                 while not self.stop.is_set():
@@ -280,7 +286,7 @@ class DrawingServer:
                     if message["op"] == "ping":
                         self._send(connection, {"v": 1, "id": request_id, "ok": True, "result": {}})
                         continue
-                    pending = Pending(message)
+                    pending = Pending(message, connection)
                     try:
                         self.commands.put_nowait(pending)
                     except queue.Full:
@@ -292,6 +298,8 @@ class DrawingServer:
                                 pending.cancelled = True
                                 pending.response = error(request_id, "timeout", "Renderer did not apply command")
                     self._send(connection, pending.response)
+                    if pending.broadcast_scene is not None:
+                        self._broadcast_scene(pending.broadcast_scene, excluding=connection)
                     pending = None
         except (OSError, ValueError):
             pass
@@ -302,6 +310,8 @@ class DrawingServer:
             with self.lock:
                 self.connections.discard(raw)
                 self.connections.discard(connection)
+                self.send_locks.pop(raw, None)
+                self.send_locks.pop(connection, None)
             connection.close()
             if authenticated:
                 with self.lock:
@@ -310,9 +320,25 @@ class DrawingServer:
                     self.pairing_needed.set()
             self.slots.release()
 
-    @staticmethod
-    def _send(connection, message):
-        connection.sendall(json.dumps(message, allow_nan=False, separators=(",", ":")).encode() + b"\n")
+    def _send(self, connection, message):
+        payload = json.dumps(message, allow_nan=False, separators=(",", ":")).encode() + b"\n"
+        with self.lock:
+            send_lock = self.send_locks.get(connection)
+        if send_lock is None:
+            return
+        with send_lock:
+            connection.sendall(payload)
+
+    def _broadcast_scene(self, scene, excluding):
+        event = {"v": 1, "event": "scene_changed", "result": scene}
+        with self.lock:
+            connections = tuple(self.authenticated_connections - {excluding})
+        for connection in connections:
+            try:
+                self._send(connection, event)
+            except OSError:
+                # The owning client thread performs connection cleanup.
+                pass
 
     def disconnect_client(self):
         """Disconnect all clients locally; remote unauthenticated callers cannot evict them."""
@@ -340,6 +366,8 @@ class DrawingServer:
                 try:
                     result = apply(pending.message)
                     pending.response = {"v": 1, "id": request_id, "ok": True, "result": result}
+                    if pending.message["op"] != "state":
+                        pending.broadcast_scene = result
                 except CommandError as exc:
                     pending.response = error(request_id, "invalid_command", str(exc))
                 except Exception:

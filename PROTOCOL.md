@@ -65,7 +65,9 @@ Use UTF-8 JSON objects, one per LF-terminated line, inside TLS. Maximum frame
 size is 262144 bytes including LF. TCP reads may contain partial or multiple
 frames. Each request must include integer `v:1`, string `id` (1-64 characters),
 and string `op`. IDs correlate responses, not object identities. Responses are
-ordered; the sample client sends one request at a time. Unknown optional fields
+ordered, but server events can appear between a request and its response, so
+clients must dispatch frames by `id` or `event`. The sample client sends one
+request at a time. Unknown optional fields
 are ignored, while unsupported versions, operations, and primitive types are
 rejected. Future primitives add new `type` values without changing framing.
 
@@ -80,6 +82,18 @@ Error:
 ```json
 {"v":1,"id":"2","ok":false,"error":{"code":"invalid_command","message":"Unsupported primitive type"}}
 ```
+
+After a scene-changing command is applied, every other authenticated client is
+sent the complete authoritative scene without needing to poll:
+
+```json
+{"v":1,"event":"scene_changed","result":{"mode":"drawing","object_ids":["ball"],"objects":[{"id":"ball","type":"sphere"}],"revision":7}}
+```
+
+Events have no request `id`. Clients should apply only events whose `revision` is
+newer than the latest scene they have processed. The originating client receives
+its authoritative scene in the normal command response rather than as a duplicate
+event. `state` and `ping` do not generate events.
 
 Error codes include `bad_message`, `invalid_code`, `pairing_expired`,
 `pairing_locked`, `client_busy`, `authentication_required`, `invalid_command`,

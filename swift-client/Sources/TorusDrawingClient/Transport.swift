@@ -61,7 +61,12 @@ final class TLSConnection {
     let connection: NWConnection
     private let queue = DispatchQueue(label: "torus.network")
     private let requestLock = NSLock()
+    private let responseCondition = NSCondition()
+    private let handlerLock = NSLock()
     private var buffer = Data()
+    private var responses: [String: [String: Any]] = [:]
+    private var receiveFailure: Error?
+    private var sceneUpdateHandler: (([String: Any]) -> Void)?
     private var sequence = 0
     private var heartbeat: DispatchSourceTimer?
     private let expectedFingerprint: String?
@@ -112,6 +117,13 @@ final class TLSConnection {
         }
         if let failure = failure { throw failure }
         connection.stateUpdateHandler = nil
+        receiveNextChunk()
+    }
+
+    func onSceneUpdate(_ handler: @escaping ([String: Any]) -> Void) {
+        handlerLock.lock()
+        sceneUpdateHandler = handler
+        handlerLock.unlock()
     }
 
     func keepAlive() {
@@ -129,6 +141,7 @@ final class TLSConnection {
     func close() {
         heartbeat?.cancel()
         heartbeat = nil
+        failReceiving(TorusClientError.message("Server disconnected"))
         connection.cancel()
     }
 
@@ -154,9 +167,17 @@ final class TLSConnection {
             throw TorusClientError.message("Send timed out")
         }
         if let error = sendError { throw error }
-        let reply = try receiveLine()
-        guard let response = try JSONSerialization.jsonObject(with: reply) as? [String: Any],
-              response["id"] as? String == id, response["v"] as? Int == 1 else {
+        let deadline = Date(timeIntervalSinceNow: 10)
+        responseCondition.lock()
+        while responses[id] == nil, receiveFailure == nil {
+            guard responseCondition.wait(until: deadline) else { break }
+        }
+        let response = responses.removeValue(forKey: id)
+        let failure = receiveFailure
+        responseCondition.unlock()
+        if let failure { throw failure }
+        guard let response, response["v"] as? Int == 1 else {
+            close()
             throw TorusClientError.message("Invalid server reply")
         }
         guard response["ok"] as? Bool == true else {
@@ -169,32 +190,62 @@ final class TLSConnection {
         return response
     }
 
-    private func receiveLine() throws -> Data {
-        while true {
-            if let newline = buffer.firstIndex(of: 10) {
-                let line = Data(buffer[..<newline])
-                buffer.removeSubrange(...newline)
-                return line
+    private func receiveNextChunk() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, complete, error in
+            guard let self else { return }
+            if let error {
+                self.failReceiving(error)
+                return
             }
-            let received = DispatchSemaphore(value: 0)
-            var chunk: Data?
-            var failure: NWError?
-            var ended = false
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, complete, error in
-                chunk = data
-                failure = error
-                ended = complete
-                received.signal()
+            if let data { self.buffer.append(data) }
+            guard self.buffer.count <= 262144 else {
+                self.failReceiving(TorusClientError.message("Server message too large"))
+                self.connection.cancel()
+                return
             }
-            guard received.wait(timeout: .now() + 10) == .success else {
-                connection.cancel()
-                throw TorusClientError.message("Reply timed out")
+            self.consumeFrames()
+            if complete {
+                self.failReceiving(TorusClientError.message("Server disconnected"))
+            } else {
+                self.receiveNextChunk()
             }
-            if let failure = failure { throw failure }
-            if let chunk = chunk { buffer.append(chunk) }
-            guard buffer.count <= 262144 else { throw TorusClientError.message("Reply too large") }
-            if ended && !buffer.contains(10) { throw TorusClientError.message("Server disconnected") }
         }
+    }
+
+    private func consumeFrames() {
+        while let newline = buffer.firstIndex(of: 10) {
+            let line = Data(buffer[..<newline])
+            buffer.removeSubrange(...newline)
+            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  message["v"] as? Int == 1 else {
+                failReceiving(TorusClientError.message("Invalid server message"))
+                connection.cancel()
+                return
+            }
+            if message["event"] as? String == "scene_changed",
+               let result = message["result"] as? [String: Any] {
+                handlerLock.lock()
+                let handler = sceneUpdateHandler
+                handlerLock.unlock()
+                handler?(result)
+            } else if let id = message["id"] as? String {
+                responseCondition.lock()
+                responses[id] = message
+                responseCondition.broadcast()
+                responseCondition.unlock()
+            } else {
+                failReceiving(TorusClientError.message("Invalid server message"))
+                connection.cancel()
+                return
+            }
+        }
+    }
+
+    private func failReceiving(_ error: Error) {
+        responseCondition.lock()
+        if receiveFailure == nil { receiveFailure = error }
+        responseCondition.broadcast()
+        responseCondition.unlock()
     }
 
 }

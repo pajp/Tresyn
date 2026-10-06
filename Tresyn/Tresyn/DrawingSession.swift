@@ -67,8 +67,10 @@ final class DrawingSession: ObservableObject {
     private var editingStartPoint: [Double]?
     private var depthSendTask: Task<Void, Never>?
     private var connectionMonitorTask: Task<Void, Never>?
+    private var sceneUpdateTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
+    private var sceneRevision = -1
 
     var color: Color { palette[selectedColor].color }
     var rgb: [Double] { palette[selectedColor].rgb }
@@ -113,7 +115,9 @@ final class DrawingSession: ObservableObject {
                 maximumStrokePointCount = max(2, capabilities.limits["points_per_object"] ?? 1_024)
                 _ = try await newClient.setMode(.drawing)
                 let scene = try await newClient.state()
+                sceneRevision = scene.revision
                 previewObjects = scene.objects.map(previewObject)
+                updateObjectCounter(from: scene.objects)
                 selectedObjectID = nil
                 undoStack.removeAll()
                 redoStack.removeAll()
@@ -124,6 +128,7 @@ final class DrawingSession: ObservableObject {
                 isConnecting = false
                 pendingCertificate = nil
                 status = "Connected — changes appear on the Looking Glass Go immediately."
+                startSceneUpdates(newClient)
                 startConnectionMonitoring(newClient)
             } catch let error as TorusClientError {
                 isConnecting = false
@@ -144,6 +149,8 @@ final class DrawingSession: ObservableObject {
         shouldReconnect = false
         connectionMonitorTask?.cancel()
         connectionMonitorTask = nil
+        sceneUpdateTask?.cancel()
+        sceneUpdateTask = nil
         reconnectTask?.cancel()
         reconnectTask = nil
         flushTask?.cancel()
@@ -173,8 +180,33 @@ final class DrawingSession: ObservableObject {
         }
     }
 
+    private func startSceneUpdates(_ monitoredClient: TorusClient) {
+        sceneUpdateTask?.cancel()
+        sceneUpdateTask = Task {
+            for await scene in monitoredClient.sceneUpdates {
+                guard !Task.isCancelled, client === monitoredClient else { return }
+                applyRemoteScene(scene)
+            }
+        }
+    }
+
+    private func applyRemoteScene(_ scene: SceneState) {
+        guard scene.revision > sceneRevision else { return }
+        sceneRevision = scene.revision
+        previewObjects = scene.objects.map(previewObject)
+        updateObjectCounter(from: scene.objects)
+        if let selectedObjectID, !scene.objectIDs.contains(selectedObjectID) {
+            self.selectedObjectID = nil
+        }
+        undoStack.removeAll()
+        redoStack.removeAll()
+        updateHistoryAvailability()
+    }
+
     private func connectionWasLost() {
         guard shouldReconnect, reconnectTask == nil else { return }
+        sceneUpdateTask?.cancel()
+        sceneUpdateTask = nil
         client = nil
         isConnecting = true
         status = "Connection lost. Reconnecting…"
@@ -199,6 +231,7 @@ final class DrawingSession: ObservableObject {
                     }
 
                     maximumStrokePointCount = max(2, capabilities.limits["points_per_object"] ?? 1_024)
+                    sceneRevision = scene.revision
                     previewObjects = scene.objects.map(previewObject)
                     updateObjectCounter(from: scene.objects)
                     selectedObjectID = nil
@@ -207,6 +240,7 @@ final class DrawingSession: ObservableObject {
                     isConnecting = false
                     status = "Reconnected — changes appear on the Looking Glass Go immediately."
                     reconnectTask = nil
+                    startSceneUpdates(newClient)
                     startConnectionMonitoring(newClient)
                     return
                 } catch let error as TorusClientError {

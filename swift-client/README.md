@@ -32,6 +32,11 @@ import TorusDrawingClient
 
 let client = TorusClient(host: "Ferrum.local")
 let capabilities = try await client.connect(pairingCode: codeFromUser)
+let updates = Task {
+    for await scene in client.sceneUpdates {
+        // Refresh local UI from scene.objects. Updates come from other clients.
+    }
+}
 try await client.setMode(.drawing)
 try await client.put(DrawingObject(
     id: "ball", type: .sphere,
@@ -47,12 +52,16 @@ try await client.delete("ball")
 try await client.clear()
 try await client.setMode(.dashboard)
 await client.disconnect()
+updates.cancel()
 ```
 
 All vectors are XYZ, quaternions XYZW, and colors RGB arrays. Scene coordinates
 are display-world units, not meters. Await commands during drawing to maintain
 backpressure; small point batches are preferable to creating an unbounded task
 for every tracking sample. The transport sends keep-alives automatically.
+The server pushes complete, revisioned scene snapshots when another client changes
+the shared scene; `sceneUpdates` continuously receives them even while this client
+is idle. Apply only newer revisions when combining updates with an initial `state()`.
 Cancellation is checked before queuing work; already-running socket operations
 finish or time out (up to 10 seconds). `disconnect()` runs after previously
 queued operations. Do not enqueue unlimited work ahead of it.

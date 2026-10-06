@@ -5,8 +5,10 @@ import Foundation
 public final class TorusClient: @unchecked Sendable {
     public let host: String
     public let port: UInt16
+    public let sceneUpdates: AsyncStream<SceneState>
     private let work = DispatchQueue(label: "torus.client.commands")
     private let trust: TrustStore
+    private let sceneContinuation: AsyncStream<SceneState>.Continuation
     private var connection: TLSConnection?
     // Retain the observed identity across code retries, before it is persisted.
     private var sessionFingerprint: String?
@@ -19,6 +21,9 @@ public final class TorusClient: @unchecked Sendable {
     public init(host: String = "127.0.0.1", port: UInt16 = 8765, trustDirectory: URL? = nil) {
         self.host = host
         self.port = port
+        var continuation: AsyncStream<SceneState>.Continuation!
+        sceneUpdates = AsyncStream(bufferingPolicy: .bufferingNewest(32)) { continuation = $0 }
+        sceneContinuation = continuation
         trust = TrustStore(directory: trustDirectory ?? Self.defaultTrustDirectory,
                            endpoint: "\(host.lowercased()):\(port)")
     }
@@ -28,13 +33,19 @@ public final class TorusClient: @unchecked Sendable {
     /// as approvedCertificate. It is persisted only after code authentication succeeds.
     @discardableResult
     public func connect(pairingCode: String? = nil, approvedCertificate: String? = nil) async throws -> ServerCapabilities {
-        try await perform {
+        let updateContinuation = sceneContinuation
+        return try await perform {
             guard self.port != 0 else { throw TorusClientError.message("Port must be nonzero") }
             self.connection?.close()
             self.connection = nil
             let saved = try self.trust.load()
-            let expected = try approvedCertificate ?? self.sessionFingerprint ?? saved?.fingerprint
+            let expected = approvedCertificate ?? self.sessionFingerprint ?? saved?.fingerprint
             let transport = try TLSConnection(host: self.host, port: self.port, fingerprint: expected)
+            transport.onSceneUpdate { fields in
+                guard let data = try? JSONSerialization.data(withJSONObject: fields),
+                      let scene = try? JSONDecoder().decode(SceneState.self, from: data) else { return }
+                updateContinuation.yield(scene)
+            }
             do {
                 try transport.connect()
                 self.sessionFingerprint = transport.fingerprint
@@ -131,5 +142,8 @@ public final class TorusClient: @unchecked Sendable {
         }
     }
 
-    deinit { connection?.close() }
+    deinit {
+        sceneContinuation.finish()
+        connection?.close()
+    }
 }
