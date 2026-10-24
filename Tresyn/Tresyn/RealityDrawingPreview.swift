@@ -21,6 +21,7 @@ struct RealityDrawingPreview: View {
     @Binding var cameraControlsEnabled: Bool
     let resetRequest: Int
     let onObjectSelected: (String) -> Void
+    let onObjectDoubleActivated: (String) -> Void
     let onManipulationBegan: (String) -> Void
     let onManipulationChanged: (String, Transform) -> Void
     let onManipulationEnded: (String, Transform) -> Void
@@ -62,6 +63,16 @@ struct RealityDrawingPreview: View {
             updateScene()
         }
         .macOSCameraControls(isEnabled: cameraControlsEnabled)
+        #if os(visionOS)
+        .simultaneousGesture(
+            SpatialTapGesture(count: 2)
+                .targetedToAnyEntity()
+                .onEnded { value in
+                    guard allowsObjectManipulation else { return }
+                    onObjectDoubleActivated(value.entity.name)
+                }
+        )
+        #endif
         .background(.black.opacity(0.92), in: RoundedRectangle(cornerRadius: 20))
         .overlay(RoundedRectangle(cornerRadius: 20).stroke(.white.opacity(0.12), lineWidth: 1))
         #if os(macOS)

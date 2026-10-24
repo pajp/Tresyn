@@ -506,6 +506,13 @@ struct ContentView: View {
                     selectedObjectMagnifyGesture,
                     isEnabled: !isAdjustingView && session.selectedTool == .select
                 )
+                .simultaneousGesture(
+                    SpatialTapGesture(count: 2, coordinateSpace: .local)
+                        .onEnded { value in
+                            session.cloneObject(at: value.location, in: geometry.size)
+                        },
+                    isEnabled: !isAdjustingView && session.selectedTool == .select
+                )
                 .onModifierKeysChanged(mask: .option) { _, modifiers in
                     isOptionPressed = modifiers.contains(.option)
                 }
@@ -529,6 +536,10 @@ struct ContentView: View {
                 onObjectSelected: { id in
                     guard session.selectedTool == .select else { return }
                     session.selectObject(id: id)
+                },
+                onObjectDoubleActivated: { id in
+                    guard session.selectedTool == .select else { return }
+                    session.cloneObject(id: id)
                 },
                 onManipulationBegan: session.beginObjectManipulation,
                 onManipulationChanged: session.updateObjectTransform,

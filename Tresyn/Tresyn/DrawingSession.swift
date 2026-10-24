@@ -551,6 +551,46 @@ final class DrawingSession: ObservableObject {
         }
     }
 
+    func cloneObject(at location: CGPoint, in size: CGSize) {
+        let point = worldPoint(location, in: size)
+        guard let id = previewObjects
+            .map({ ($0.id, planarSelectionDistance(from: point, to: $0.object)) })
+            .filter({ $0.1 < 0.5 })
+            .min(by: { $0.1 < $1.1 })?.0 else { return }
+        cloneObject(id: id)
+    }
+
+    func cloneObject(id: String) {
+        guard let source = previewObjects.first(where: { $0.id == id })?.object,
+              client != nil,
+              !isTransferringScene else { return }
+
+        let snapshot = sceneObjects()
+        let horizontalOffset = objectCenter(source)[0] > 0 ? -0.35 : 0.35
+        let shifted = constrainedToDisplayBounds(
+            transformed(source, translation: [horizontalOffset, 0, 0])
+        )
+        objectCounter += 1
+        let clone = DrawingObject(
+            id: "vision-\(source.type.rawValue)-\(objectCounter)",
+            type: shifted.type,
+            position: shifted.position,
+            rotation: shifted.rotation,
+            scale: shifted.scale,
+            color: shifted.color,
+            radius: shifted.radius,
+            size: shifted.size,
+            majorRadius: shifted.majorRadius,
+            minorRadius: shifted.minorRadius,
+            points: shifted.points
+        )
+        previewObjects.append(previewObject(clone))
+        selectedObjectID = clone.id
+        recordChange(from: snapshot)
+        enqueueObjectUpdate(clone)
+        status = "Cloned selected object."
+    }
+
     func setColor(_ color: Color, rgb: [Double]) {
         guard rgb.count >= 3 else { return }
         self.color = color
