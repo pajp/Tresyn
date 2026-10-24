@@ -3,15 +3,61 @@ from datetime import datetime
 import locale
 from pathlib import Path
 import tempfile
+import threading
+import time
 from unittest.mock import patch
 
 import numpy as np
 
 from torus import (Pose, TextStream, camera, expand_message, message_words,
-                   message_lines, crawl_rows, text_layout, stream_positions, torus_vertices)
+                   message_lines, crawl_rows, shutdown_bridge, text_layout,
+                   stream_positions, torus_vertices)
 
 
 class GeometryTests(unittest.TestCase):
+    def test_bridge_shutdown_services_main_thread_work(self):
+        uninitializing = threading.Event()
+        main_work_done = threading.Event()
+        calls = []
+
+        class Bridge:
+            def show_window(self, handle, visible):
+                calls.append(("show", handle, visible))
+
+            def uninitialize(self):
+                calls.append(("uninitialize",))
+                uninitializing.set()
+                self.main_work_was_serviced = main_work_done.wait(1)
+
+        bridge = Bridge()
+
+        def poll_events():
+            if uninitializing.is_set():
+                main_work_done.set()
+
+        shutdown_bridge(bridge, 42, poll_events)
+
+        self.assertTrue(bridge.main_work_was_serviced)
+        self.assertEqual(calls, [("show", 42, False), ("uninitialize",)])
+
+    def test_bridge_shutdown_does_not_wait_forever(self):
+        release = threading.Event()
+
+        class Bridge:
+            def show_window(self, handle, visible):
+                pass
+
+            def uninitialize(self):
+                release.wait()
+
+        started = time.monotonic()
+        try:
+            with self.assertRaisesRegex(TimeoutError, "did not finish"):
+                shutdown_bridge(Bridge(), 42, lambda: None, timeout=0.02)
+            self.assertLess(time.monotonic() - started, 0.2)
+        finally:
+            release.set()
+
     def test_swedish_greeting_boundaries(self):
         for hour, expected in ((0, "god natt"), (4, "god natt"),
                                (5, "god morgon"), (9, "god morgon"),

@@ -168,6 +168,20 @@ class ServerTests(unittest.TestCase):
         other = self.connect()
         self.assertTrue(self.request(other, "pair", code=self.server.pairing.code)["ok"])
 
+    def test_remote_disconnect_does_not_request_pairing_screen(self):
+        client = self.connect()
+        self.assertTrue(self.request(client, "pair", code=self.server.pairing.code)["ok"])
+        client[1].close()
+        client[0].close()
+
+        deadline = time.monotonic() + 2
+        while self.server.pairing.active and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        self.assertFalse(self.server.pairing.active)
+        self.assertFalse(self.server.pairing_needed.is_set())
+        self.assertEqual(self.server.pairing.snapshot()["status"], "ready")
+
 
 if __name__ == "__main__":
     unittest.main()

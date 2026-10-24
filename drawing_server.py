@@ -185,6 +185,7 @@ class DrawingServer:
         self.slots = threading.BoundedSemaphore(4)
         self.connections = set()
         self.authenticated_connections = set()
+        self.locally_disconnected_connections = set()
         self.send_locks = {}
         self.pairing_needed = threading.Event()
         self.lock = threading.Lock()
@@ -312,11 +313,13 @@ class DrawingServer:
                 self.connections.discard(connection)
                 self.send_locks.pop(raw, None)
                 self.send_locks.pop(connection, None)
+                locally_disconnected = connection in self.locally_disconnected_connections
+                self.locally_disconnected_connections.discard(connection)
             connection.close()
             if authenticated:
                 with self.lock:
                     self.authenticated_connections.discard(connection)
-                if self.pairing.release():
+                if self.pairing.release() and locally_disconnected:
                     self.pairing_needed.set()
             self.slots.release()
 
@@ -345,6 +348,7 @@ class DrawingServer:
         with self.lock:
             connections = tuple(self.authenticated_connections)
             for connection in connections:
+                self.locally_disconnected_connections.add(connection)
                 try:
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:

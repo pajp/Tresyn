@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import sys
 import subprocess
+import threading
 import time
 
 import glfw
@@ -25,6 +26,33 @@ from drawing import Scene
 from drawing_renderer import DrawingRenderer
 from drawing_server import DrawingServer
 from pairing_ui import PairingScreen
+
+
+def shutdown_bridge(bridge, handle, poll_events=glfw.poll_events, timeout=2.0):
+    """Tear Bridge down without blocking work it dispatches to the main thread."""
+    if handle is not None:
+        bridge.show_window(handle, False)
+    finished = threading.Event()
+    failure = []
+
+    def uninitialize():
+        try:
+            bridge.uninitialize()
+        except Exception as exc:
+            failure.append(exc)
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=uninitialize, name="bridge-shutdown", daemon=True)
+    worker.start()
+    deadline = time.monotonic() + timeout
+    while not finished.wait(0.01) and time.monotonic() < deadline:
+        poll_events()
+    if not finished.is_set():
+        raise TimeoutError("Looking Glass Bridge did not finish shutting down")
+    worker.join()
+    if failure:
+        raise failure[0]
 
 
 VERTEX = """#version 330 core
@@ -417,6 +445,7 @@ class App:
         self.window = Window(420, 740, "Torus | Connecting")
         self.pose = Pose()
         self.bridge = None
+        self.handle = None
         self.connected = False
         self.texture = self.depth = self.fbo = 0
         self.aspect, self.cone = 0.5625, 40.0
@@ -651,7 +680,7 @@ class App:
         glfw.make_context_current(self.window.handle)
         if self.bridge:
             try:
-                self.bridge.uninitialize()
+                shutdown_bridge(self.bridge, self.handle)
             except Exception as exc:
                 print(f"Bridge shutdown: {exc}", file=sys.stderr)
         glfw.make_context_current(self.window.handle)
