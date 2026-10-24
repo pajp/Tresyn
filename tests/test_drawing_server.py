@@ -182,6 +182,28 @@ class ServerTests(unittest.TestCase):
         self.assertFalse(self.server.pairing_needed.is_set())
         self.assertEqual(self.server.pairing.snapshot()["status"], "ready")
 
+    def test_scene_is_restored_after_server_exit(self):
+        self.scene.apply({"op": "mode", "mode": "drawing"})
+        self.scene.apply({"op": "put", "object": {
+            "id": "saved", "type": "sphere", "position": [0.1, 0.2, 0.3]
+        }})
+        self.server.close(self.scene)
+
+        self.server = DrawingServer("127.0.0.1", 0, self.directory.name)
+        restored = self.server.load_scene()
+
+        self.assertEqual(restored.mode, "drawing")
+        self.assertEqual(list(restored.objects), ["saved"])
+        self.assertEqual(restored.objects["saved"]["position"], [0.1, 0.2, 0.3])
+
+    def test_invalid_saved_scene_is_ignored(self):
+        self.server.scene_file.write_text('{"version":1,"mode":"drawing","objects":[null]}')
+
+        restored = self.server.load_scene()
+
+        self.assertEqual(restored.mode, "dashboard")
+        self.assertEqual(restored.objects, {})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ import subprocess
 import threading
 import time
 
-from drawing import CommandError, PRIMITIVES, MAX_OBJECTS, MAX_POINTS, MAX_SCENE_POINTS
+from drawing import CommandError, PRIMITIVES, MAX_OBJECTS, MAX_POINTS, MAX_SCENE_POINTS, Scene
 
 
 MAX_MESSAGE = 256 * 1024
@@ -179,6 +179,7 @@ class DrawingServer:
         directory = directory or Path(__file__).with_name(".drawing-local")
         self.context, self.fingerprint = identity(directory)
         self.credentials = ResumeCredentials(directory)
+        self.scene_file = Path(directory) / "drawing-scene.json"
         self.pairing = Pairing()
         self.commands = queue.Queue(maxsize=64)
         self.stop = threading.Event()
@@ -201,6 +202,33 @@ class DrawingServer:
         self.listener.settimeout(0.5)
         self.thread = threading.Thread(target=self._accept, name="drawing-server", daemon=True)
         self.thread.start()
+
+    def load_scene(self):
+        """Return the last complete scene, or a new scene if none can be restored."""
+        scene = Scene()
+        try:
+            saved = json.loads(self.scene_file.read_text())
+            if not isinstance(saved, dict) or saved.get("version") != 1:
+                return scene
+            objects = saved.get("objects")
+            if not isinstance(objects, list):
+                return scene
+            restored = Scene()
+            restored.apply({"op": "mode", "mode": saved.get("mode")})
+            for obj in objects:
+                restored.apply({"op": "put", "object": obj})
+            return restored
+        except (OSError, ValueError, TypeError, json.JSONDecodeError, CommandError):
+            return scene
+
+    def save_scene(self, scene):
+        """Atomically persist a validated snapshot for the next server launch."""
+        payload = {"version": 1, "mode": scene.mode, "objects": list(scene.objects.values())}
+        temporary = self.scene_file.with_suffix(".tmp")
+        temporary.write_text(json.dumps(payload, allow_nan=False, separators=(",", ":")))
+        temporary.chmod(0o600)
+        temporary.replace(self.scene_file)
+        self.scene_file.chmod(0o600)
 
     def _accept(self):
         while not self.stop.is_set():
@@ -378,7 +406,7 @@ class DrawingServer:
                     pending.response = error(request_id, "internal_error", "Cannot apply command")
                 pending.done.set()
 
-    def close(self):
+    def close(self, scene=None):
         self.stop.set()
         self.listener.close()
         with self.lock:
@@ -388,3 +416,5 @@ class DrawingServer:
                 except OSError:
                     pass
         self.thread.join(timeout=1)
+        if scene is not None:
+            self.save_scene(scene)

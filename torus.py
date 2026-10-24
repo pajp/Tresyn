@@ -459,7 +459,6 @@ class App:
         self.uniforms = {name: GL.glGetUniformLocation(self.shader.id, name)
                          for name in ("model", "vp", "eye")}
         self.text_stream = TextStream(args.message)
-        self.scene = Scene()
         self.drawing = DrawingRenderer()
         self.server = None
         self.pair_screen = PairingScreen() if args.server else None
@@ -470,6 +469,7 @@ class App:
             self.server = DrawingServer(args.host, args.port)
             self.show_pairing = True
             print(f"Drawing server: TLS {args.host}:{self.server.port}", flush=True)
+        self.scene = self.server.load_scene() if self.server else Scene()
         if not args.preview:
             self.connect()
         self.window.set_title(f"Torus | {self.status}")
@@ -676,7 +676,10 @@ class App:
 
     def close(self):
         if self.server:
-            self.server.close()
+            try:
+                self.server.close(self.scene)
+            except Exception as exc:
+                print(f"Scene save failed: {exc}", file=sys.stderr)
         glfw.make_context_current(self.window.handle)
         if self.bridge:
             try:
