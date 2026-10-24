@@ -131,65 +131,66 @@ struct ContentView: View {
                                 .tint(session.selectedTool == tool ? .accentColor : .gray)
                             }
                         }
-                Divider()
-                HStack {
-                    Button { session.undo() } label: {
-                        Label("Undo", systemImage: "arrow.uturn.backward")
-                    }
-                    .labelStyle(.iconOnly)
-                    .disabled(!session.canUndo)
-                    Button { session.redo() } label: {
-                        Label("Redo", systemImage: "arrow.uturn.forward")
-                    }
-                    .labelStyle(.iconOnly)
-                    .disabled(!session.canRedo)
-                }
-                if session.selectedTool == .select {
-                    HStack {
-                        Button { session.rotateSelectedObject(by: .degrees(-15)) } label: {
-                            Label("Rotate left", systemImage: "rotate.left")
+                        Divider()
+                        HStack {
+                            Button { session.undo() } label: {
+                                Label("Undo", systemImage: "arrow.uturn.backward")
+                            }
+                            .labelStyle(.iconOnly)
+                            .disabled(!session.canUndo)
+                            Button { session.redo() } label: {
+                                Label("Redo", systemImage: "arrow.uturn.forward")
+                            }
+                            .labelStyle(.iconOnly)
+                            .disabled(!session.canRedo)
                         }
-                        Button { session.rotateSelectedObject(by: .degrees(15)) } label: {
-                            Label("Rotate right", systemImage: "rotate.right")
+                        if session.selectedTool == .select {
+                            HStack {
+                                Button { session.rotateSelectedObject(by: .degrees(-15)) } label: {
+                                    Label("Rotate left", systemImage: "rotate.left")
+                                }
+                                Button { session.rotateSelectedObject(by: .degrees(15)) } label: {
+                                    Label("Rotate right", systemImage: "rotate.right")
+                                }
+                                Button(role: .destructive) {
+                                    session.deleteSelectedObject()
+                                } label: {
+                                    Label("Delete Selected", systemImage: "trash")
+                                }
+                            }
+                            .labelStyle(.iconOnly)
+                            .disabled(session.selectedObjectID == nil)
                         }
-                        Button(role: .destructive) {
-                            session.deleteSelectedObject()
-                        } label: {
-                            Label("Delete Selected", systemImage: "trash")
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .disabled(session.selectedObjectID == nil)
-                }
-                Divider()
-                Picker("Color", selection: colorSelectionBinding) {
-                    ForEach(session.palette.indices, id: \.self) { index in
-                        Text(session.palette[index].name).tag(index)
-                    }
-                }
-                .pickerStyle(.menu)
-                .tint(session.color)
-                if session.selectedTool == .select {
-                    if let selectedDepth = session.selectedObjectDepth {
-                        Text("Object depth \(selectedDepth, format: .number.precision(.fractionLength(2)))")
-                            .font(.headline)
-                        Slider(value: selectedDepthBinding, in: -0.65...0.65) { isEditing in
-                            if isEditing {
-                                session.beginChangingSelectedDepth()
-                            } else {
-                                session.endChangingSelectedDepth()
+                        Divider()
+                        Picker("Color", selection: colorSelectionBinding) {
+                            ForEach(session.palette.indices, id: \.self) { index in
+                                Text(session.palette[index].name).tag(index)
                             }
                         }
-                    } else {
-                        Text("Select an object to change its depth")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Depth \(session.depth, format: .number.precision(.fractionLength(2)))")
-                        .font(.headline)
-                    Slider(value: $session.depth, in: -0.65...0.65)
-                }
+                        .pickerStyle(.menu)
+                        .tint(session.color)
+                        if session.selectedTool == .select {
+                            if let selectedDepth = session.selectedObjectDepth {
+                                Text("Object depth \(selectedDepth, format: .number.precision(.fractionLength(2)))")
+                                    .font(.headline)
+                                Slider(value: selectedDepthBinding, in: -0.65...0.65) { isEditing in
+                                    if isEditing {
+                                        session.beginChangingSelectedDepth()
+                                    } else {
+                                        session.endChangingSelectedDepth()
+                                    }
+                                }
+                            } else {
+                                Text("Select an object to change its depth")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Text("Depth \(session.depth, format: .number.precision(.fractionLength(2)))")
+                                .font(.headline)
+                            Slider(value: $session.depth, in: -0.65...0.65)
+                        }
+                        sceneActions
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 8)
@@ -198,16 +199,6 @@ struct ContentView: View {
                 .frame(width: toolsWidth)
 
                 VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text(instructionText)
-                        .font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .layoutPriority(1)
-                    Spacer()
-                    Text("Connected")
-                        .foregroundStyle(.green)
-                        .fixedSize()
-                }
                     #if os(macOS)
                     HStack(spacing: 8) {
                     Button {
@@ -235,7 +226,6 @@ struct ContentView: View {
                             .foregroundStyle(.red)
                             .lineLimit(2)
                     }
-                    sceneActions
                 }
                 .frame(width: canvasWidth)
                 .frame(maxHeight: .infinity, alignment: .topLeading)
@@ -341,26 +331,6 @@ struct ContentView: View {
         if value > 0 { return "In front of the display plane" }
         if value < 0 { return "Behind the display plane" }
         return "On the display plane"
-    }
-
-    private var instructionText: String {
-        #if os(macOS)
-        if isAdjustingView {
-            return "Drag the canvas to orbit, then return to Front to continue drawing"
-        }
-        #endif
-        return switch session.selectedTool {
-        case .select:
-            #if os(visionOS)
-            "Look at an object, then pinch to select and move it. Use both hands and turn to rotate in 3D"
-            #else
-            "Touch an object to select it, then pinch and drag to move it in 3D"
-            #endif
-        case .stroke:
-            "Bring your hand to the canvas, then pinch and hold to draw"
-        case .sphere, .box, .torus:
-            "Bring your hand to the canvas, then pinch to place a \(session.selectedTool.rawValue.lowercased())"
-        }
     }
 
     #if os(visionOS)
@@ -497,12 +467,6 @@ struct ContentView: View {
                     .position(handLocation)
                     .allowsHitTesting(false)
             }
-            VStack {
-                Text("Looking Glass Go • 2.925 × 5.2 display-world units")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding()
         }
         .contentShape(Rectangle())
         .drawingPointerBehavior(isEnabled: session.selectedTool != .select)
