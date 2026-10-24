@@ -7,6 +7,9 @@ import TorusDrawingClient
 
 @MainActor
 final class DrawingSession: ObservableObject {
+    private static let displayMinimum = SIMD3<Double>(-1.4625, -2.6, -0.65)
+    private static let displayMaximum = SIMD3<Double>(1.4625, 2.6, 0.65)
+
     enum Tool: String, CaseIterable, Identifiable {
         case select = "Select", stroke = "Stroke", sphere = "Sphere", box = "Box", torus = "Torus"
         var id: String { rawValue }
@@ -68,8 +71,8 @@ final class DrawingSession: ObservableObject {
     private var manipulationSnapshot: [DrawingObject]?
     private var editingObject: DrawingObject?
     private var editingStartPoint: [Double]?
-    private var objectUpdateTask: Task<Void, Never>?
-    private var pendingObjectUpdate: DrawingObject?
+    private var objectUpdateTasks: [String: Task<Void, Never>] = [:]
+    private var pendingObjectUpdates: [String: DrawingObject] = [:]
     private var connectionMonitorTask: Task<Void, Never>?
     private var sceneUpdateTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -176,9 +179,9 @@ final class DrawingSession: ObservableObject {
         reconnectTask = nil
         flushTask?.cancel()
         strokeSendTask?.cancel()
-        objectUpdateTask?.cancel()
-        objectUpdateTask = nil
-        pendingObjectUpdate = nil
+        objectUpdateTasks.values.forEach { $0.cancel() }
+        objectUpdateTasks.removeAll()
+        pendingObjectUpdates.removeAll()
         activeStrokeID = nil
         bufferedPoints.removeAll()
         Task { await client?.disconnect() }
@@ -448,13 +451,12 @@ final class DrawingSession: ObservableObject {
         let target = worldPoint(location, in: size)
         let originalDepth = objectCenter(original)[2]
         let requestedDepth = originalDepth + Double(depthTranslation / max(size.height, 1)) * 5.2
-        let clampedDepth = min(max(requestedDepth, -0.65), 0.65)
         let offset = [
             target[0] - editingStartPoint[0],
             target[1] - editingStartPoint[1],
-            clampedDepth - originalDepth
+            requestedDepth - originalDepth
         ]
-        let moved = transformed(original, translation: offset)
+        let moved = constrainedToDisplayBounds(transformed(original, translation: offset))
         previewObjects[index] = previewObject(moved)
         enqueueObjectUpdate(moved)
     }
@@ -484,7 +486,9 @@ final class DrawingSession: ObservableObject {
               let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }) else { return }
         let object = previewObjects[index].object
         let currentDepth = objectCenter(object)[2]
-        let updatedObject = transformed(object, translation: [0, 0, newDepth - currentDepth])
+        let updatedObject = constrainedToDisplayBounds(
+            transformed(object, translation: [0, 0, newDepth - currentDepth])
+        )
         previewObjects[index] = previewObject(updatedObject)
         enqueueObjectUpdate(updatedObject)
     }
@@ -499,21 +503,30 @@ final class DrawingSession: ObservableObject {
     }
 
     private func enqueueObjectUpdate(_ object: DrawingObject) {
-        pendingObjectUpdate = object
-        guard objectUpdateTask == nil else { return }
-        objectUpdateTask = Task { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled, let object = pendingObjectUpdate {
-                pendingObjectUpdate = nil
-                guard let client else { break }
-                do {
-                    _ = try await client.put(object)
-                } catch {
-                    status = "Couldn’t update object: \(error.localizedDescription)"
-                }
-            }
-            objectUpdateTask = nil
+        pendingObjectUpdates[object.id] = object
+        guard objectUpdateTasks[object.id] == nil else { return }
+        objectUpdateTasks[object.id] = Task { [weak self] in
+            await self?.sendPendingObjectUpdates(for: object.id)
         }
+    }
+
+    private func sendPendingObjectUpdates(for objectID: String) async {
+        while !Task.isCancelled {
+            guard let object = pendingObjectUpdates.removeValue(forKey: objectID) else {
+                objectUpdateTasks[objectID] = nil
+                return
+            }
+            guard let client else {
+                objectUpdateTasks[objectID] = nil
+                return
+            }
+            do {
+                _ = try await client.put(object)
+            } catch {
+                status = "Couldn’t update object: \(error.localizedDescription)"
+            }
+        }
+        objectUpdateTasks[objectID] = nil
     }
 
     func selectObject(id: String) {
@@ -564,7 +577,7 @@ final class DrawingSession: ObservableObject {
     func updateObjectTransform(id: String, transform: Transform) {
         guard let index = previewObjects.firstIndex(where: { $0.id == id }),
               client != nil else { return }
-        let updated = object(previewObjects[index].object, applying: transform)
+        let updated = constrainedToDisplayBounds(object(previewObjects[index].object, applying: transform))
         previewObjects[index] = previewObject(updated)
         selectedObjectID = id
         enqueueObjectUpdate(updated)
@@ -628,6 +641,7 @@ final class DrawingSession: ObservableObject {
             let w = current[safe: 3] ?? 1
             object.rotation = [-sine * y, sine * x, cosine * z + sine * w, cosine * w - sine * z]
         }
+        object = constrainedToDisplayBounds(object)
         previewObjects[index] = previewObject(object)
         recordChange(from: snapshot)
         Task {
@@ -713,10 +727,11 @@ final class DrawingSession: ObservableObject {
         case .stroke:
             return
         }
-        previewObjects.append(previewObject(object))
+        let constrainedObject = constrainedToDisplayBounds(object)
+        previewObjects.append(previewObject(constrainedObject))
         recordChange(from: snapshot)
         Task {
-            do { _ = try await client.put(object) }
+            do { _ = try await client.put(constrainedObject) }
             catch { status = "Couldn’t place shape: \(error.localizedDescription)" }
         }
     }
@@ -727,14 +742,14 @@ final class DrawingSession: ObservableObject {
         activeStrokeID = "vision-stroke-\(objectCounter)"
         activeStrokePointCount = 0
         strokeInitialized = false
-        lastStrokePoint = worldPoint(location, in: size)
+        lastStrokePoint = worldPoint(location, in: size, inset: 0.022)
         bufferedPoints = []
         pendingStrokeSnapshot = sceneObjects()
     }
 
     func continueStroke(at location: CGPoint, in size: CGSize) {
         guard let last = lastStrokePoint, let id = activeStrokeID, let client else { return }
-        let next = worldPoint(location, in: size)
+        let next = worldPoint(location, in: size, inset: 0.022)
         guard distance(last, next) > 0.025 else { return }
         lastStrokePoint = next
 
@@ -829,15 +844,121 @@ final class DrawingSession: ObservableObject {
         }
     }
 
+    private func constrainedToDisplayBounds(_ object: DrawingObject) -> DrawingObject {
+        let bounds = worldBounds(of: object)
+        var correction = SIMD3<Double>.zero
+
+        for axis in 0..<2 {
+            let displaySpan = Self.displayMaximum[axis] - Self.displayMinimum[axis]
+            let objectSpan = bounds.maximum[axis] - bounds.minimum[axis]
+            if objectSpan > displaySpan {
+                correction[axis] = (Self.displayMinimum[axis] + Self.displayMaximum[axis]
+                                    - bounds.minimum[axis] - bounds.maximum[axis]) / 2
+            } else if bounds.minimum[axis] < Self.displayMinimum[axis] {
+                correction[axis] = Self.displayMinimum[axis] - bounds.minimum[axis]
+            } else if bounds.maximum[axis] > Self.displayMaximum[axis] {
+                correction[axis] = Self.displayMaximum[axis] - bounds.maximum[axis]
+            }
+        }
+
+        // Depth controls represent the object's position in the Looking Glass
+        // volume, so the object's center may use the complete -0.65...0.65 range.
+        let objectDepth = objectCenter(object)[2]
+        correction.z = min(max(objectDepth, Self.displayMinimum.z), Self.displayMaximum.z) - objectDepth
+
+        guard correction != .zero else { return object }
+        var constrained = object
+        if let position = constrained.position {
+            constrained.position = (0..<3).map { (position[safe: $0] ?? 0) + correction[$0] }
+        } else if let points = constrained.points {
+            constrained.points = points.map { point in
+                (0..<3).map { (point[safe: $0] ?? 0) + correction[$0] }
+            }
+        }
+        return constrained
+    }
+
+    private func worldBounds(of object: DrawingObject) -> (minimum: SIMD3<Double>, maximum: SIMD3<Double>) {
+        let localBounds = localBounds(of: object)
+        let position = vector3(object.position ?? [0, 0, 0])
+        let scale = vector3(object.scale ?? [1, 1, 1])
+        let rotation = object.rotation ?? [0, 0, 0, 1]
+        let orientation = simd_quatd(
+            ix: rotation[safe: 0] ?? 0,
+            iy: rotation[safe: 1] ?? 0,
+            iz: rotation[safe: 2] ?? 0,
+            r: rotation[safe: 3] ?? 1
+        ).normalized
+        var minimum = SIMD3<Double>(repeating: .infinity)
+        var maximum = SIMD3<Double>(repeating: -.infinity)
+
+        for x in [localBounds.minimum.x, localBounds.maximum.x] {
+            for y in [localBounds.minimum.y, localBounds.maximum.y] {
+                for z in [localBounds.minimum.z, localBounds.maximum.z] {
+                    let point = position + orientation.act(SIMD3(x, y, z) * scale)
+                    minimum = SIMD3(
+                        min(minimum.x, point.x), min(minimum.y, point.y), min(minimum.z, point.z)
+                    )
+                    maximum = SIMD3(
+                        max(maximum.x, point.x), max(maximum.y, point.y), max(maximum.z, point.z)
+                    )
+                }
+            }
+        }
+        return (minimum, maximum)
+    }
+
+    private func localBounds(of object: DrawingObject) -> (minimum: SIMD3<Double>, maximum: SIMD3<Double>) {
+        if let points = object.points, !points.isEmpty {
+            let radius = object.radius ?? 0
+            var minimum = SIMD3<Double>(repeating: .infinity)
+            var maximum = SIMD3<Double>(repeating: -.infinity)
+            for values in points {
+                let point = vector3(values)
+                minimum = SIMD3(
+                    min(minimum.x, point.x), min(minimum.y, point.y), min(minimum.z, point.z)
+                )
+                maximum = SIMD3(
+                    max(maximum.x, point.x), max(maximum.y, point.y), max(maximum.z, point.z)
+                )
+            }
+            return (minimum - SIMD3(repeating: radius), maximum + SIMD3(repeating: radius))
+        }
+
+        let halfExtents: SIMD3<Double>
+        switch object.type {
+        case .sphere:
+            halfExtents = SIMD3(repeating: object.radius ?? 0.25)
+        case .box:
+            halfExtents = vector3(object.size ?? [0.5, 0.5, 0.5]) / 2
+        case .torus:
+            let outerRadius = (object.majorRadius ?? 0.4) + (object.minorRadius ?? 0.12)
+            halfExtents = SIMD3(outerRadius, outerRadius, object.minorRadius ?? 0.12)
+        case .line, .polyline:
+            halfExtents = .zero
+        }
+        return (-halfExtents, halfExtents)
+    }
+
+    private func vector3(_ values: [Double]) -> SIMD3<Double> {
+        SIMD3(values[safe: 0] ?? 0, values[safe: 1] ?? 0, values[safe: 2] ?? 0)
+    }
+
     private func errorMessage(_ error: Error) -> String {
         (error as? TorusClientError)?.description ?? error.localizedDescription
     }
 
     // Exact display-plane dimensions documented by the Drawing Server for Looking Glass Go.
-    private func worldPoint(_ point: CGPoint, in size: CGSize) -> [Double] {
-        [(Double(point.x / max(size.width, 1)) - 0.5) * 2.925,
-         (0.5 - Double(point.y / max(size.height, 1))) * 5.2,
-         depth]
+    private func worldPoint(_ point: CGPoint, in size: CGSize, inset: Double = 0) -> [Double] {
+        let projected = SIMD3(
+            (Double(point.x / max(size.width, 1)) - 0.5) * 2.925,
+            (0.5 - Double(point.y / max(size.height, 1))) * 5.2,
+            depth
+        )
+        return (0..<3).map { axis in
+            min(max(projected[axis], Self.displayMinimum[axis] + inset),
+                Self.displayMaximum[axis] - inset)
+        }
     }
 
     private func distance(_ a: [Double], _ b: [Double]) -> Double {

@@ -8,6 +8,8 @@ import RealityKit
 import TorusDrawingClient
 
 struct RealityDrawingPreview: View {
+    private static let displayMinimum = SIMD3<Float>(-1.4625, -2.6, -0.65)
+    private static let displayMaximum = SIMD3<Float>(1.4625, 2.6, 0.65)
     #if os(macOS)
     private static let macOSSceneScale: Float = 0.24
     private static let displayWorldHeight: Float = 5.2
@@ -43,9 +45,11 @@ struct RealityDrawingPreview: View {
                 onManipulationBegan(event.entity.name)
             }
             _ = content.subscribe(to: ManipulationEvents.DidUpdateTransform.self) { event in
+                constrainToDisplayBounds(event.entity)
                 onManipulationChanged(event.entity.name, event.entity.transform)
             }
             _ = content.subscribe(to: ManipulationEvents.WillEnd.self) { event in
+                constrainToDisplayBounds(event.entity)
                 onManipulationEnded(event.entity.name, event.entity.transform)
                 activelyManipulatedObjectIDs.remove(event.entity.name)
                 isManipulatingObject = !activelyManipulatedObjectIDs.isEmpty
@@ -66,6 +70,29 @@ struct RealityDrawingPreview: View {
         }
         #endif
     }
+
+    #if os(visionOS)
+    @MainActor
+    private func constrainToDisplayBounds(_ entity: Entity) {
+        let bounds = entity.visualBounds(relativeTo: root)
+        var correction = SIMD3<Float>.zero
+        for axis in 0..<2 {
+            let displaySpan = Self.displayMaximum[axis] - Self.displayMinimum[axis]
+            let objectSpan = bounds.max[axis] - bounds.min[axis]
+            if objectSpan > displaySpan {
+                correction[axis] = (Self.displayMinimum[axis] + Self.displayMaximum[axis]
+                                    - bounds.min[axis] - bounds.max[axis]) / 2
+            } else if bounds.min[axis] < Self.displayMinimum[axis] {
+                correction[axis] = Self.displayMinimum[axis] - bounds.min[axis]
+            } else if bounds.max[axis] > Self.displayMaximum[axis] {
+                correction[axis] = Self.displayMaximum[axis] - bounds.max[axis]
+            }
+        }
+        correction.z = min(max(entity.position.z, Self.displayMinimum.z), Self.displayMaximum.z)
+                     - entity.position.z
+        entity.position += correction
+    }
+    #endif
 
     @MainActor
     private func configureRoot() {
