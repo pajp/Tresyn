@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     private static let selectionDragThreshold: CGFloat = 10
 
+    @Environment(\.self) private var environment
     @StateObject private var session = DrawingSession()
     @State private var isImportingScene = false
     @State private var isExportingScene = false
@@ -162,13 +163,7 @@ struct ContentView: View {
                             .disabled(session.selectedObjectID == nil)
                         }
                         Divider()
-                        Picker("Color", selection: colorSelectionBinding) {
-                            ForEach(session.palette.indices, id: \.self) { index in
-                                Text(session.palette[index].name).tag(index)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .tint(session.color)
+                        ColorPicker("Color", selection: colorSelectionBinding, supportsOpacity: false)
                         if session.selectedTool == .select {
                             if let selectedDepth = session.selectedObjectDepth {
                                 Text("Object depth \(selectedDepth, format: .number.precision(.fractionLength(2)))")
@@ -299,15 +294,15 @@ struct ContentView: View {
         }
     }
 
-    private var colorSelectionBinding: Binding<Int> {
+    private var colorSelectionBinding: Binding<Color> {
         Binding(
-            get: { session.selectedColor },
-            set: { index in
-                if session.selectedTool == .select, session.selectedObjectID != nil {
-                    session.setSelectedObjectColor(index: index)
-                } else {
-                    session.selectedColor = index
-                }
+            get: { session.color },
+            set: { color in
+                let resolved = color.resolve(in: environment)
+                session.setColor(
+                    color,
+                    rgb: [Double(resolved.red), Double(resolved.green), Double(resolved.blue)]
+                )
             }
         )
     }

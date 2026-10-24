@@ -37,7 +37,8 @@ final class DrawingSession: ObservableObject {
     @Published var isConnecting = false
     @Published var isConnected = false
     @Published var selectedTool: Tool = .stroke
-    @Published var selectedColor = 0
+    @Published private(set) var color = Color(.sRGB, red: 0.18, green: 0.83, blue: 1)
+    @Published private(set) var rgb = [0.18, 0.83, 1.0]
     @Published var depth = 0.15
     @Published var previewObjects: [PreviewObject] = []
     @Published var selectedObjectID: String?
@@ -45,14 +46,6 @@ final class DrawingSession: ObservableObject {
     @Published private(set) var canRedo = false
     @Published var pendingCertificate: String?
     @Published var isTransferringScene = false
-
-    let palette: [(name: String, color: Color, rgb: [Double])] = [
-        ("Cyan", .cyan, [0.18, 0.83, 1]),
-        ("Coral", .orange, [1, 0.38, 0.25]),
-        ("Lime", .green, [0.45, 0.95, 0.42]),
-        ("Violet", .purple, [0.66, 0.42, 1]),
-        ("White", .white, [0.95, 0.97, 1])
-    ]
 
     private var client: TorusClient?
     private var objectCounter = 0
@@ -79,10 +72,6 @@ final class DrawingSession: ObservableObject {
     private var shouldReconnect = false
     private var hasAttemptedAutomaticReconnect = false
     private var sceneRevision = -1
-
-    var color: Color { palette[selectedColor].color }
-    var rgb: [Double] { palette[selectedColor].rgb }
-    var selectedColorName: String { palette[selectedColor].name }
     var selectedObjectDepth: Double? {
         guard let selectedObjectID,
               let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object else { return nil }
@@ -532,16 +521,18 @@ final class DrawingSession: ObservableObject {
     func selectObject(id: String) {
         guard let object = previewObjects.first(where: { $0.id == id })?.object else { return }
         selectedObjectID = id
-        if let objectColor = object.color,
-           let colorIndex = palette.firstIndex(where: { entry in
-               zip(entry.rgb, objectColor).allSatisfy { abs($0.0 - $0.1) < 0.001 }
-           }) {
-            selectedColor = colorIndex
+        if let objectColor = object.color, objectColor.count >= 3 {
+            rgb = Array(objectColor.prefix(3))
+            color = Color(.sRGB, red: rgb[0], green: rgb[1], blue: rgb[2])
         }
     }
 
-    func setSelectedObjectColor(index: Int) {
-        guard palette.indices.contains(index),
+    func setColor(_ color: Color, rgb: [Double]) {
+        guard rgb.count >= 3 else { return }
+        self.color = color
+        self.rgb = Array(rgb.prefix(3))
+
+        guard selectedTool == .select,
               let selectedObjectID,
               let objectIndex = previewObjects.firstIndex(where: { $0.id == selectedObjectID }),
               client != nil else { return }
@@ -553,14 +544,13 @@ final class DrawingSession: ObservableObject {
             position: current.position,
             rotation: current.rotation,
             scale: current.scale,
-            color: palette[index].rgb,
+            color: self.rgb,
             radius: current.radius,
             size: current.size,
             majorRadius: current.majorRadius,
             minorRadius: current.minorRadius,
             points: current.points
         )
-        selectedColor = index
         previewObjects[objectIndex] = previewObject(updated)
         recordChange(from: snapshot)
         enqueueObjectUpdate(updated)
