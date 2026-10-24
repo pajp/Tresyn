@@ -1,6 +1,9 @@
 import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 struct ContentView: View {
     private static let selectionDragThreshold: CGFloat = 10
@@ -13,6 +16,12 @@ struct ContentView: View {
     @State private var isManipulatingObject = false
     @State private var isAdjustingView = false
     @State private var viewResetRequest = 0
+    #if os(macOS)
+    @State private var lastRotationDragTranslation = CGSize.zero
+    @State private var lastMagnification = 1.0
+    @State private var isScalingWithScrollWheel = false
+    @State private var isOptionPressed = false
+    #endif
 
     var body: some View {
         Group {
@@ -363,6 +372,7 @@ struct ContentView: View {
             isDirectInteractionActive = true
             switch session.selectedTool {
             case .select:
+                guard !isOptionPressed else { return }
                 if value.translation == .zero {
                     session.selectObject(at: value.location, in: size)
                 } else if hypot(value.translation.width, value.translation.height) >= Self.selectionDragThreshold {
@@ -384,6 +394,63 @@ struct ContentView: View {
         }
         .onEnded { value in
             finishDirectDrawingGesture(at: value.location, in: size)
+        }
+    }
+    #endif
+
+    #if os(macOS)
+    private var selectedObjectRotationGesture: some Gesture {
+        DragGesture(minimumDistance: Self.selectionDragThreshold, coordinateSpace: .local)
+            .modifiers(.option)
+            .onChanged { value in
+                guard session.selectedTool == .select, session.selectedObjectID != nil else { return }
+                if lastRotationDragTranslation == .zero {
+                    session.beginTransformingSelectedObject()
+                }
+                let horizontalDelta = value.translation.width - lastRotationDragTranslation.width
+                let verticalDelta = value.translation.height - lastRotationDragTranslation.height
+                lastRotationDragTranslation = value.translation
+                session.rotateSelectedObjectContinuously(
+                    horizontal: .radians(Double(horizontalDelta) * 0.012),
+                    vertical: .radians(Double(-verticalDelta) * 0.012)
+                )
+            }
+            .onEnded { _ in
+                session.endTransformingSelectedObject()
+                lastRotationDragTranslation = .zero
+            }
+    }
+
+    private var selectedObjectMagnifyGesture: some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                guard session.selectedTool == .select, session.selectedObjectID != nil else { return }
+                if lastMagnification == 1 {
+                    session.beginTransformingSelectedObject()
+                }
+                let factor = value.magnification / lastMagnification
+                lastMagnification = value.magnification
+                session.scaleSelectedObject(by: factor)
+            }
+            .onEnded { _ in
+                session.endTransformingSelectedObject()
+                lastMagnification = 1
+            }
+    }
+
+    private func handleScaleScroll(_ phase: MacScrollPhase, deltaY: CGFloat) {
+        guard session.selectedTool == .select, session.selectedObjectID != nil else { return }
+        switch phase {
+        case .began:
+            guard !isScalingWithScrollWheel else { return }
+            isScalingWithScrollWheel = true
+            session.beginTransformingSelectedObject()
+        case .changed:
+            session.scaleSelectedObject(by: exp(Double(deltaY) * 0.012))
+        case .ended:
+            guard isScalingWithScrollWheel else { return }
+            isScalingWithScrollWheel = false
+            session.endTransformingSelectedObject()
         }
     }
     #endif
@@ -424,7 +491,27 @@ struct ContentView: View {
         #else
         return GeometryReader { geometry in
             drawingSurfaceContent
+                #if os(macOS)
+                .background {
+                    MacScrollWheelObserver { phase, deltaY in
+                        handleScaleScroll(phase, deltaY: deltaY)
+                    }
+                }
                 .gesture(directDrawingGesture(in: geometry.size), isEnabled: !isAdjustingView)
+                .highPriorityGesture(
+                    selectedObjectRotationGesture,
+                    isEnabled: !isAdjustingView && session.selectedTool == .select
+                )
+                .simultaneousGesture(
+                    selectedObjectMagnifyGesture,
+                    isEnabled: !isAdjustingView && session.selectedTool == .select
+                )
+                .onModifierKeysChanged(mask: .option) { _, modifiers in
+                    isOptionPressed = modifiers.contains(.option)
+                }
+                #else
+                .gesture(directDrawingGesture(in: geometry.size), isEnabled: !isAdjustingView)
+                #endif
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 28))
@@ -470,6 +557,83 @@ struct ContentView: View {
         }
     }
 }
+
+#if os(macOS)
+private enum MacScrollPhase {
+    case began
+    case changed
+    case ended
+}
+
+private struct MacScrollWheelObserver: NSViewRepresentable {
+    let action: (MacScrollPhase, CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(action: action)
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        context.coordinator.view = view
+        context.coordinator.startMonitoring()
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.action = action
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
+    @MainActor
+    final class Coordinator {
+        weak var view: NSView?
+        var action: (MacScrollPhase, CGFloat) -> Void
+        private var monitor: Any?
+        private var endTask: Task<Void, Never>?
+        private var isScrolling = false
+
+        init(action: @escaping (MacScrollPhase, CGFloat) -> Void) {
+            self.action = action
+        }
+
+        func startMonitoring() {
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                self?.handle(event)
+                return event
+            }
+        }
+
+        func stopMonitoring() {
+            endTask?.cancel()
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        private func handle(_ event: NSEvent) {
+            guard let view, let window = view.window, event.window === window else { return }
+            let location = view.convert(event.locationInWindow, from: nil)
+            guard view.bounds.contains(location) else { return }
+
+            if !isScrolling {
+                isScrolling = true
+                action(.began, 0)
+            }
+            action(.changed, event.scrollingDeltaY)
+
+            endTask?.cancel()
+            endTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(140))
+                guard !Task.isCancelled, let self else { return }
+                isScrolling = false
+                action(.ended, 0)
+            }
+        }
+    }
+}
+#endif
 
 private extension View {
     @ViewBuilder

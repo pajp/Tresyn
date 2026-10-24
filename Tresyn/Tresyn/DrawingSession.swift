@@ -664,6 +664,95 @@ final class DrawingSession: ObservableObject {
         }
     }
 
+    func beginTransformingSelectedObject() {
+        guard manipulationSnapshot == nil, selectedObjectID != nil, client != nil else { return }
+        manipulationSnapshot = sceneObjects()
+    }
+
+    func rotateSelectedObjectContinuously(horizontal: Angle, vertical: Angle) {
+        guard manipulationSnapshot != nil else { return }
+        updateSelectedObject { object in
+            var object = object
+            if let points = object.points {
+                let center = objectCenter(object)
+                let horizontalCosine = cos(horizontal.radians)
+                let horizontalSine = sin(horizontal.radians)
+                let verticalCosine = cos(vertical.radians)
+                let verticalSine = sin(vertical.radians)
+                object.points = points.map { point in
+                    let x = (point[safe: 0] ?? 0) - center[0]
+                    let y = (point[safe: 1] ?? 0) - center[1]
+                    let z = (point[safe: 2] ?? 0) - center[2]
+                    let rotatedX = x * horizontalCosine - y * horizontalSine
+                    let rotatedY = x * horizontalSine + y * horizontalCosine
+                    return [
+                        center[0] + rotatedX,
+                        center[1] + rotatedY * verticalCosine - z * verticalSine,
+                        center[2] + rotatedY * verticalSine + z * verticalCosine
+                    ]
+                }
+            } else {
+                let current = object.rotation ?? [0, 0, 0, 1]
+                let currentRotation = simd_quatd(
+                    ix: current[safe: 0] ?? 0,
+                    iy: current[safe: 1] ?? 0,
+                    iz: current[safe: 2] ?? 0,
+                    r: current[safe: 3] ?? 1
+                )
+                let horizontalRotation = simd_quatd(
+                    angle: horizontal.radians,
+                    axis: SIMD3<Double>(0, 0, 1)
+                )
+                let verticalRotation = simd_quatd(
+                    angle: vertical.radians,
+                    axis: SIMD3<Double>(1, 0, 0)
+                )
+                let rotation = simd_normalize(verticalRotation * horizontalRotation * currentRotation).vector
+                object.rotation = [rotation.x, rotation.y, rotation.z, rotation.w]
+            }
+            return object
+        }
+    }
+
+    func scaleSelectedObject(by factor: Double) {
+        guard manipulationSnapshot != nil, factor.isFinite else { return }
+        let clampedFactor = min(max(factor, 0.5), 2)
+        updateSelectedObject { object in
+            var object = object
+            if let points = object.points {
+                let center = objectCenter(object)
+                object.points = points.map { point in
+                    [
+                        center[0] + ((point[safe: 0] ?? center[0]) - center[0]) * clampedFactor,
+                        center[1] + ((point[safe: 1] ?? center[1]) - center[1]) * clampedFactor,
+                        center[2] + ((point[safe: 2] ?? center[2]) - center[2]) * clampedFactor
+                    ]
+                }
+                if let radius = object.radius { object.radius = radius * clampedFactor }
+            } else {
+                object.scale = (object.scale ?? [1, 1, 1]).map {
+                    min(max($0 * clampedFactor, 0.05), 20)
+                }
+            }
+            return object
+        }
+    }
+
+    func endTransformingSelectedObject() {
+        guard let snapshot = manipulationSnapshot else { return }
+        manipulationSnapshot = nil
+        recordChange(from: snapshot)
+    }
+
+    private func updateSelectedObject(_ transform: (DrawingObject) -> DrawingObject) {
+        guard let selectedObjectID,
+              let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }),
+              client != nil else { return }
+        let object = constrainedToDisplayBounds(transform(previewObjects[index].object))
+        previewObjects[index] = previewObject(object)
+        enqueueObjectUpdate(object)
+    }
+
     func deleteSelectedObject() {
         guard let selectedObjectID, let client,
               previewObjects.contains(where: { $0.id == selectedObjectID }) else { return }
