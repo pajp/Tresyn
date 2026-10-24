@@ -1,4 +1,4 @@
-# Trackpad Torus
+# Tresyn
 
 This project renders a trackpad-controlled torus and text dashboard on a
 Looking Glass Go, with a Mac preview. An optional paired TLS server adds a shared
