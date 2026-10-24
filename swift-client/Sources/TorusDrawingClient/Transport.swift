@@ -3,7 +3,7 @@ import Network
 import Security
 import CryptoKit
 
-public enum TorusClientError: Error, CustomStringConvertible, Sendable {
+public enum TorusClientError: Error, CustomStringConvertible, LocalizedError, Sendable {
     case message(String)
     case certificateChanged(String)
     case server(String, String)
@@ -14,6 +14,8 @@ public enum TorusClientError: Error, CustomStringConvertible, Sendable {
         case .server(_, let text): return text
         }
     }
+
+    public var errorDescription: String? { description }
 }
 
 struct TrustStore {

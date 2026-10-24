@@ -593,8 +593,11 @@ final class DrawingSession: ObservableObject {
 
     func setColor(_ color: Color, rgb: [Double]) {
         guard rgb.count >= 3 else { return }
+        let safeRGB = rgb.prefix(3).map { component in
+            min(max(component.isFinite ? component : 0, 0), 1)
+        }
         self.color = color
-        self.rgb = Array(rgb.prefix(3))
+        self.rgb = safeRGB
 
         guard selectedTool == .select,
               let selectedObjectID,
