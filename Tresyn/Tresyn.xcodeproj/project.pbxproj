@@ -6,6 +6,10 @@
 	objectVersion = 90;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		000000000000000000000131 /* TorusDrawingClient in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000151 /* TorusDrawingClient */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Tresyn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tresyn.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -26,10 +30,6 @@
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXBuildFile section */
-		000000000000000000000131 /* TorusDrawingClient in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000151 /* TorusDrawingClient */; };
-/* End PBXBuildFile section */
 
 /* Begin PBXGroup section */
 		000000000000000000000001 = {
@@ -96,10 +96,10 @@
 			);
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
-			preferredProjectObjectVersion = 90;
 			packageReferences = (
 				000000000000000000000150 /* XCLocalSwiftPackageReference "../swift-client" */,
 			);
+			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -108,21 +108,6 @@
 			);
 		};
 /* End PBXProject section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		000000000000000000000150 /* XCLocalSwiftPackageReference "../swift-client" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../swift-client;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		000000000000000000000151 /* TorusDrawingClient */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 000000000000000000000150 /* XCLocalSwiftPackageReference "../swift-client" */;
-			productName = TorusDrawingClient;
-		};
-/* End XCSwiftPackageProductDependency section */
 
 /* Begin PBXResourcesBuildPhase section */
 		000000000000000140000000 /* Resources */ = {
@@ -276,11 +261,22 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "Tresyn" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7BJ49E34RD;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Tresyn connects to your paired Drawing Server to send live 3D drawings to Looking Glass Go.";
@@ -315,11 +311,22 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "Tresyn" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 7BJ49E34RD;
 				ENABLE_APP_SANDBOX = YES;
+				ENABLE_INCOMING_NETWORK_CONNECTIONS = NO;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_AUDIO_INPUT = NO;
+				ENABLE_RESOURCE_ACCESS_BLUETOOTH = NO;
+				ENABLE_RESOURCE_ACCESS_CALENDARS = NO;
+				ENABLE_RESOURCE_ACCESS_CAMERA = NO;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = NO;
+				ENABLE_RESOURCE_ACCESS_LOCATION = NO;
+				ENABLE_RESOURCE_ACCESS_PRINTING = NO;
+				ENABLE_RESOURCE_ACCESS_USB = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Tresyn connects to your paired Drawing Server to send live 3D drawings to Looking Glass Go.";
@@ -371,6 +378,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		000000000000000000000150 /* XCLocalSwiftPackageReference "../swift-client" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../swift-client";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		000000000000000000000151 /* TorusDrawingClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 000000000000000000000150 /* XCLocalSwiftPackageReference "../swift-client" */;
+			productName = TorusDrawingClient;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 000000000000000000000000 /* Project object */;
 }

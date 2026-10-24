@@ -15,9 +15,18 @@ struct RealityDrawingPreview: View {
 
     let objects: [DrawingSession.PreviewObject]
     let selectedObjectID: String?
+    let allowsObjectManipulation: Bool
     @Binding var cameraControlsEnabled: Bool
     let resetRequest: Int
+    let onObjectSelected: (String) -> Void
+    let onManipulationBegan: (String) -> Void
+    let onManipulationChanged: (String, Transform) -> Void
+    let onManipulationEnded: (String, Transform) -> Void
+    @Binding var isManipulatingObject: Bool
     @State private var root = Entity()
+    #if os(visionOS)
+    @State private var activelyManipulatedObjectIDs: Set<String> = []
+    #endif
     #if os(macOS)
     @State private var camera = Entity()
     #endif
@@ -26,6 +35,22 @@ struct RealityDrawingPreview: View {
         RealityView { content in
             configureRoot()
             content.add(root)
+            #if os(visionOS)
+            _ = content.subscribe(to: ManipulationEvents.WillBegin.self) { event in
+                activelyManipulatedObjectIDs.insert(event.entity.name)
+                isManipulatingObject = true
+                onObjectSelected(event.entity.name)
+                onManipulationBegan(event.entity.name)
+            }
+            _ = content.subscribe(to: ManipulationEvents.DidUpdateTransform.self) { event in
+                onManipulationChanged(event.entity.name, event.entity.transform)
+            }
+            _ = content.subscribe(to: ManipulationEvents.WillEnd.self) { event in
+                onManipulationEnded(event.entity.name, event.entity.transform)
+                activelyManipulatedObjectIDs.remove(event.entity.name)
+                isManipulatingObject = !activelyManipulatedObjectIDs.isEmpty
+            }
+            #endif
             #if os(macOS)
             content.add(macOSCamera())
             #endif
@@ -94,18 +119,59 @@ struct RealityDrawingPreview: View {
         }
         for preview in objects {
             guard let entity = root.findEntity(named: preview.id) else { continue }
-            entity.components.set(OpacityComponent(opacity: preview.id == selectedObjectID ? 0.72 : 1))
+            let isSelected = preview.id == selectedObjectID
+            entity.components.set(OpacityComponent(opacity: isSelected ? 0.72 : 1))
+            #if os(visionOS)
+            if allowsObjectManipulation {
+                if !entity.components.has(InputTargetComponent.self) {
+                    var inputTarget = InputTargetComponent()
+                    inputTarget.allowedInputTypes = .indirect
+                    entity.components.set(inputTarget)
+                }
+                if !entity.components.has(HoverEffectComponent.self) {
+                    entity.components.set(HoverEffectComponent(.highlight(
+                        HoverEffectComponent.HighlightHoverEffectStyle(
+                            color: .cyan,
+                            strength: 2.0
+                        )
+                    )))
+                }
+                if !entity.components.has(ManipulationComponent.self) {
+                    var manipulation = ManipulationComponent()
+                    manipulation.releaseBehavior = .stay
+                    entity.components.set(manipulation)
+                }
+            } else {
+                entity.components.remove(InputTargetComponent.self)
+                entity.components.remove(HoverEffectComponent.self)
+                entity.components.remove(ManipulationComponent.self)
+            }
+            #endif
         }
     }
 
     @MainActor
     private func update(_ entity: Entity, with preview: DrawingSession.PreviewObject) {
         let object = preview.object
+        if let model = entity as? ModelEntity {
+            model.model?.materials = [previewMaterial(preview.color)]
+        }
         if (object.type == .polyline || object.type == .line),
            let model = entity as? ModelEntity,
            let mesh = strokeMesh(for: object) {
             model.model?.mesh = mesh
+            #if os(visionOS)
+            // Replacing a collision component while the system is gazing at it
+            // clears RealityKit's native hover state. Geometry only changes while
+            // drawing, so keep the target stable throughout Select mode.
+            if !allowsObjectManipulation {
+                model.components.set(CollisionComponent(shapes: selectionCollisionShapes(for: object)))
+            }
+            #endif
         }
+        #if os(visionOS)
+        guard !activelyManipulatedObjectIDs.contains(entity.name) else { return }
+        #endif
         entity.position = vector(object.position ?? [0, 0, 0])
         entity.scale = vector(object.scale ?? [1, 1, 1])
         let rotation = object.rotation ?? [0, 0, 0, 1]
@@ -147,8 +213,77 @@ struct RealityDrawingPreview: View {
                                         iy: Float(rotation[safe: 1] ?? 0),
                                         iz: Float(rotation[safe: 2] ?? 0),
                                         r: Float(rotation[safe: 3] ?? 1))
+        #if os(visionOS)
+        entity.components.set(CollisionComponent(shapes: selectionCollisionShapes(for: object)))
+        #endif
         return entity
     }
+
+    #if os(visionOS)
+    @MainActor
+    private func selectionCollisionShapes(for object: DrawingObject) -> [ShapeResource] {
+        // A small invisible margin gives gaze targeting a magnetic, forgiving feel
+        // without changing the model's visible size.
+        let acquisitionMargin: Float = 0.035
+        switch object.type {
+        case .sphere:
+            return [.generateSphere(radius: Float(object.radius ?? 0.25) + acquisitionMargin)]
+        case .box:
+            let size = vector(object.size ?? [0.5, 0.5, 0.5])
+            return [.generateBox(size: size + SIMD3(repeating: acquisitionMargin * 2))]
+        case .torus:
+            return torusCollisionShapes(
+                majorRadius: Float(object.majorRadius ?? 0.4),
+                minorRadius: Float(object.minorRadius ?? 0.12),
+                acquisitionMargin: acquisitionMargin
+            )
+        case .line, .polyline:
+            return strokeCollisionShapes(for: object, acquisitionMargin: acquisitionMargin)
+        }
+    }
+
+    @MainActor
+    private func strokeCollisionShapes(
+        for object: DrawingObject,
+        acquisitionMargin: Float
+    ) -> [ShapeResource] {
+        let points = (object.points ?? []).map(vector)
+        let radius = max(Float(object.radius ?? 0.015) + acquisitionMargin, 0.04)
+        let shapes = zip(points, points.dropFirst()).compactMap { start, end -> ShapeResource? in
+            let offset = end - start
+            let length = simd_length(offset)
+            guard length > 0.0001 else { return nil }
+            let orientation = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: offset / length)
+            return ShapeResource.generateCapsule(height: length + radius * 2, radius: radius)
+                .offsetBy(rotation: orientation, translation: (start + end) / 2)
+        }
+        if !shapes.isEmpty { return shapes }
+        return points.first.map {
+            [ShapeResource.generateSphere(radius: radius).offsetBy(translation: $0)]
+        } ?? []
+    }
+
+    @MainActor
+    private func torusCollisionShapes(
+        majorRadius: Float,
+        minorRadius: Float,
+        acquisitionMargin: Float,
+        segments: Int = 24
+    ) -> [ShapeResource] {
+        let targetRadius = minorRadius + acquisitionMargin
+        return (0..<segments).map { segment in
+            let startAngle = Float(segment) / Float(segments) * .pi * 2
+            let endAngle = Float(segment + 1) / Float(segments) * .pi * 2
+            let start = SIMD3<Float>(cos(startAngle) * majorRadius, sin(startAngle) * majorRadius, 0)
+            let end = SIMD3<Float>(cos(endAngle) * majorRadius, sin(endAngle) * majorRadius, 0)
+            let offset = end - start
+            let length = simd_length(offset)
+            let orientation = simd_quatf(from: SIMD3<Float>(0, 1, 0), to: offset / length)
+            return ShapeResource.generateCapsule(height: length + targetRadius * 2, radius: targetRadius)
+                .offsetBy(rotation: orientation, translation: (start + end) / 2)
+        }
+    }
+    #endif
 
     private func strokeMesh(for object: DrawingObject, sides: Int = 8) -> MeshResource? {
         let points = (object.points ?? []).map(vector)

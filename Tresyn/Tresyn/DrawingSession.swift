@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import RealityKit
+import simd
 import SwiftUI
 import TorusDrawingClient
 
@@ -63,9 +65,11 @@ final class DrawingSession: ObservableObject {
     private var redoStack: [[DrawingObject]] = []
     private var pendingStrokeSnapshot: [DrawingObject]?
     private var editSnapshot: [DrawingObject]?
+    private var manipulationSnapshot: [DrawingObject]?
     private var editingObject: DrawingObject?
     private var editingStartPoint: [Double]?
-    private var depthSendTask: Task<Void, Never>?
+    private var objectUpdateTask: Task<Void, Never>?
+    private var pendingObjectUpdate: DrawingObject?
     private var connectionMonitorTask: Task<Void, Never>?
     private var sceneUpdateTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
@@ -155,6 +159,9 @@ final class DrawingSession: ObservableObject {
         reconnectTask = nil
         flushTask?.cancel()
         strokeSendTask?.cancel()
+        objectUpdateTask?.cancel()
+        objectUpdateTask = nil
+        pendingObjectUpdate = nil
         activeStrokeID = nil
         bufferedPoints.removeAll()
         Task { await client?.disconnect() }
@@ -418,19 +425,26 @@ final class DrawingSession: ObservableObject {
         editingStartPoint = worldPoint(location, in: size)
     }
 
-    func moveSelectedObject(to location: CGPoint, in size: CGSize) {
+    func moveSelectedObject(to location: CGPoint, depthTranslation: CGFloat = 0, in size: CGSize) {
         guard let selectedObjectID, let original = editingObject, let editingStartPoint,
               let index = previewObjects.firstIndex(where: { $0.id == selectedObjectID }) else { return }
         let target = worldPoint(location, in: size)
-        let offset = [target[0] - editingStartPoint[0], target[1] - editingStartPoint[1], 0]
+        let originalDepth = objectCenter(original)[2]
+        let requestedDepth = originalDepth + Double(depthTranslation / max(size.height, 1)) * 5.2
+        let clampedDepth = min(max(requestedDepth, -0.65), 0.65)
+        let offset = [
+            target[0] - editingStartPoint[0],
+            target[1] - editingStartPoint[1],
+            clampedDepth - originalDepth
+        ]
         let moved = transformed(original, translation: offset)
         previewObjects[index] = previewObject(moved)
+        enqueueObjectUpdate(moved)
     }
 
     func endMovingSelectedObject() {
         guard let snapshot = editSnapshot, let selectedObjectID,
-              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object,
-              let client else {
+              let object = previewObjects.first(where: { $0.id == selectedObjectID })?.object else {
             editSnapshot = nil
             editingObject = nil
             editingStartPoint = nil
@@ -440,10 +454,7 @@ final class DrawingSession: ObservableObject {
         editSnapshot = nil
         editingObject = nil
         editingStartPoint = nil
-        Task {
-            do { _ = try await client.put(object) }
-            catch { status = "Couldn’t move object: \(error.localizedDescription)" }
-        }
+        enqueueObjectUpdate(object)
     }
 
     func beginChangingSelectedDepth() {
@@ -458,7 +469,7 @@ final class DrawingSession: ObservableObject {
         let currentDepth = objectCenter(object)[2]
         let updatedObject = transformed(object, translation: [0, 0, newDepth - currentDepth])
         previewObjects[index] = previewObject(updatedObject)
-        sendDepthUpdate(updatedObject)
+        enqueueObjectUpdate(updatedObject)
     }
 
     func endChangingSelectedDepth() {
@@ -470,15 +481,104 @@ final class DrawingSession: ObservableObject {
         editSnapshot = nil
     }
 
-    private func sendDepthUpdate(_ object: DrawingObject) {
-        guard let client else { return }
-        let previous = depthSendTask
-        depthSendTask = Task {
-            await previous?.value
-            guard !Task.isCancelled else { return }
-            do { _ = try await client.put(object) }
-            catch { status = "Couldn’t change object depth: \(error.localizedDescription)" }
+    private func enqueueObjectUpdate(_ object: DrawingObject) {
+        pendingObjectUpdate = object
+        guard objectUpdateTask == nil else { return }
+        objectUpdateTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, let object = pendingObjectUpdate {
+                pendingObjectUpdate = nil
+                guard let client else { break }
+                do {
+                    _ = try await client.put(object)
+                } catch {
+                    status = "Couldn’t update object: \(error.localizedDescription)"
+                }
+            }
+            objectUpdateTask = nil
         }
+    }
+
+    func selectObject(id: String) {
+        guard let object = previewObjects.first(where: { $0.id == id })?.object else { return }
+        selectedObjectID = id
+        if let objectColor = object.color,
+           let colorIndex = palette.firstIndex(where: { entry in
+               zip(entry.rgb, objectColor).allSatisfy { abs($0.0 - $0.1) < 0.001 }
+           }) {
+            selectedColor = colorIndex
+        }
+    }
+
+    func setSelectedObjectColor(index: Int) {
+        guard palette.indices.contains(index),
+              let selectedObjectID,
+              let objectIndex = previewObjects.firstIndex(where: { $0.id == selectedObjectID }),
+              client != nil else { return }
+        let snapshot = sceneObjects()
+        let current = previewObjects[objectIndex].object
+        let updated = DrawingObject(
+            id: current.id,
+            type: current.type,
+            position: current.position,
+            rotation: current.rotation,
+            scale: current.scale,
+            color: palette[index].rgb,
+            radius: current.radius,
+            size: current.size,
+            majorRadius: current.majorRadius,
+            minorRadius: current.minorRadius,
+            points: current.points
+        )
+        selectedColor = index
+        previewObjects[objectIndex] = previewObject(updated)
+        recordChange(from: snapshot)
+        enqueueObjectUpdate(updated)
+    }
+
+    func beginObjectManipulation(id: String) {
+        guard client != nil, previewObjects.contains(where: { $0.id == id }) else { return }
+        selectedObjectID = id
+        if manipulationSnapshot == nil {
+            manipulationSnapshot = sceneObjects()
+        }
+    }
+
+    func updateObjectTransform(id: String, transform: Transform) {
+        guard let index = previewObjects.firstIndex(where: { $0.id == id }),
+              client != nil else { return }
+        let updated = object(previewObjects[index].object, applying: transform)
+        previewObjects[index] = previewObject(updated)
+        selectedObjectID = id
+        enqueueObjectUpdate(updated)
+    }
+
+    func endObjectManipulation(id: String, transform: Transform) {
+        updateObjectTransform(id: id, transform: transform)
+        guard let snapshot = manipulationSnapshot else { return }
+        manipulationSnapshot = nil
+        recordChange(from: snapshot)
+    }
+
+    private func object(_ current: DrawingObject, applying transform: Transform) -> DrawingObject {
+        let rotation = transform.rotation.vector
+        return DrawingObject(
+            id: current.id,
+            type: current.type,
+            position: [
+                Double(transform.translation.x),
+                Double(transform.translation.y),
+                Double(transform.translation.z)
+            ],
+            rotation: [Double(rotation.x), Double(rotation.y), Double(rotation.z), Double(rotation.w)],
+            scale: [Double(transform.scale.x), Double(transform.scale.y), Double(transform.scale.z)],
+            color: current.color,
+            radius: current.radius,
+            size: current.size,
+            majorRadius: current.majorRadius,
+            minorRadius: current.minorRadius,
+            points: current.points
+        )
     }
 
     func rotateSelectedObject(by angle: Angle) {

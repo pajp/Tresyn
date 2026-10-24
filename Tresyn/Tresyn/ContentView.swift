@@ -12,6 +12,7 @@ struct ContentView: View {
     @State private var handLocation: CGPoint?
     @State private var isDirectInteractionActive = false
     @State private var isMovingSelection = false
+    @State private var isManipulatingObject = false
     @State private var isAdjustingView = false
     @State private var viewResetRequest = 0
 
@@ -158,7 +159,7 @@ struct ContentView: View {
                     .disabled(session.selectedObjectID == nil)
                 }
                 Divider()
-                Picker("Color", selection: $session.selectedColor) {
+                Picker("Color", selection: colorSelectionBinding) {
                     ForEach(session.palette.indices, id: \.self) { index in
                         Text(session.palette[index].name).tag(index)
                     }
@@ -305,6 +306,19 @@ struct ContentView: View {
         }
     }
 
+    private var colorSelectionBinding: Binding<Int> {
+        Binding(
+            get: { session.selectedColor },
+            set: { index in
+                if session.selectedTool == .select, session.selectedObjectID != nil {
+                    session.setSelectedObjectColor(index: index)
+                } else {
+                    session.selectedColor = index
+                }
+            }
+        )
+    }
+
     private var selectedDepthBinding: Binding<Double> {
         Binding(
             get: { session.selectedObjectDepth ?? 0 },
@@ -334,7 +348,11 @@ struct ContentView: View {
         #endif
         return switch session.selectedTool {
         case .select:
-            "Touch an object to select it, then pinch and drag to move"
+            #if os(visionOS)
+            "Look at an object, then pinch to select and move it. Use both hands and turn to rotate in 3D"
+            #else
+            "Touch an object to select it, then pinch and drag to move it in 3D"
+            #endif
         case .stroke:
             "Bring your hand to the canvas, then pinch and hold to draw"
         case .sphere, .box, .torus:
@@ -342,6 +360,35 @@ struct ContentView: View {
         }
     }
 
+    #if os(visionOS)
+    private func directDrawingGesture(
+        in size: CGSize,
+        coordinateSpace3D: some CoordinateSpace3D
+    ) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace3D: coordinateSpace3D)
+            .onChanged { value in
+                guard !isManipulatingObject else { return }
+                handLocation = value.location
+                isDirectInteractionActive = true
+                switch session.selectedTool {
+                case .select:
+                    // RealityKit entity gestures handle selection and manipulation on visionOS.
+                    break
+                case .stroke:
+                    if value.translation == .zero {
+                        session.beginStroke(at: value.location, in: size)
+                    } else {
+                        session.continueStroke(at: value.location, in: size)
+                    }
+                case .sphere, .box, .torus:
+                    break
+                }
+            }
+            .onEnded { value in
+                finishDirectDrawingGesture(at: value.location, in: size)
+            }
+    }
+    #else
     private func directDrawingGesture(in size: CGSize) -> some Gesture {
         DragGesture(
             minimumDistance: 0,
@@ -373,73 +420,124 @@ struct ContentView: View {
             }
         }
         .onEnded { value in
-            handLocation = value.location
-            isDirectInteractionActive = false
-            switch session.selectedTool {
-            case .select:
-                if isMovingSelection { session.endMovingSelectedObject() }
-                isMovingSelection = false
-            case .stroke:
-                session.endStroke()
-            case .sphere, .box, .torus:
-                session.place(value.location, in: size)
-            }
+            finishDirectDrawingGesture(at: value.location, in: size)
+        }
+    }
+    #endif
+
+    private func finishDirectDrawingGesture(at location: CGPoint, in size: CGSize) {
+        handLocation = location
+        isDirectInteractionActive = false
+        switch session.selectedTool {
+        case .select:
+            if isMovingSelection { session.endMovingSelectedObject() }
+            isMovingSelection = false
+        case .stroke:
+            session.endStroke()
+        case .sphere, .box, .torus:
+            session.place(location, in: size)
         }
     }
 
     private func drawingSurface(maxHeight: CGFloat, maxWidth: CGFloat) -> some View {
-        GeometryReader { geometry in
-            ZStack {
-                RealityDrawingPreview(
-                    objects: session.previewObjects,
-                    selectedObjectID: session.selectedObjectID,
-                    cameraControlsEnabled: $isAdjustingView,
-                    resetRequest: viewResetRequest
-                )
-                if let handLocation {
-                    Circle()
-                        .fill(session.color)
-                        .frame(width: isDirectInteractionActive ? 18 : 12, height: isDirectInteractionActive ? 18 : 12)
-                        .overlay(Circle().stroke(.white, lineWidth: 2))
-                        .shadow(color: session.color.opacity(0.8), radius: 8)
-                        .position(handLocation)
-                        .allowsHitTesting(false)
-                }
-                VStack {
-                    Text("Looking Glass Go • 2.925 × 5.2 display-world units")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding()
+        let width = min(maxWidth, maxHeight * 2.925 / 5.2)
+        let height = min(maxHeight, maxWidth * 5.2 / 2.925)
+        #if os(visionOS)
+        return GeometryReader3D { spatialGeometry in
+            let coordinateSpace = spatialGeometry.coordinateSpace3D()
+            GeometryReader { geometry in
+                drawingSurfaceContent
+                    .simultaneousGesture(
+                        directDrawingGesture(
+                            in: geometry.size,
+                            coordinateSpace3D: coordinateSpace
+                        ),
+                        isEnabled: !isAdjustingView && session.selectedTool != .select
+                    )
             }
-            .contentShape(Rectangle())
-            .drawingPointerBehavior()
-            .onContinuousHover { phase in
-                switch phase {
-                case .active(let location):
-                    handLocation = location
-                case .ended:
-                    if !isDirectInteractionActive { handLocation = nil }
-                }
-            }
-            .gesture(directDrawingGesture(in: geometry.size), isEnabled: !isAdjustingView)
         }
-        .frame(
-            width: min(maxWidth, maxHeight * 2.925 / 5.2),
-            height: min(maxHeight, maxWidth * 5.2 / 2.925)
-        )
+        .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 28))
+        #else
+        return GeometryReader { geometry in
+            drawingSurfaceContent
+                .gesture(directDrawingGesture(in: geometry.size), isEnabled: !isAdjustingView)
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        #endif
+    }
+
+    private var drawingSurfaceContent: some View {
+        ZStack {
+            RealityDrawingPreview(
+                objects: session.previewObjects,
+                selectedObjectID: session.selectedObjectID,
+                allowsObjectManipulation: session.selectedTool == .select,
+                cameraControlsEnabled: $isAdjustingView,
+                resetRequest: viewResetRequest,
+                onObjectSelected: { id in
+                    guard session.selectedTool == .select else { return }
+                    session.selectObject(id: id)
+                },
+                onManipulationBegan: session.beginObjectManipulation,
+                onManipulationChanged: session.updateObjectTransform,
+                onManipulationEnded: session.endObjectManipulation,
+                isManipulatingObject: $isManipulatingObject
+            )
+            if session.selectedTool != .select, let handLocation {
+                Circle()
+                    .fill(session.color)
+                    .frame(width: isDirectInteractionActive ? 18 : 12, height: isDirectInteractionActive ? 18 : 12)
+                    .overlay(Circle().stroke(.white, lineWidth: 2))
+                    .shadow(color: session.color.opacity(0.8), radius: 8)
+                    .position(handLocation)
+                    .allowsHitTesting(false)
+            }
+            VStack {
+                Text("Looking Glass Go • 2.925 × 5.2 display-world units")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding()
+        }
+        .contentShape(Rectangle())
+        .drawingPointerBehavior(isEnabled: session.selectedTool != .select)
+        .drawingHoverTracking(isEnabled: session.selectedTool != .select) { phase in
+            switch phase {
+            case .active(let location):
+                handLocation = location
+            case .ended:
+                if !isDirectInteractionActive { handLocation = nil }
+            }
+        }
     }
 }
 
 private extension View {
     @ViewBuilder
-    func drawingPointerBehavior() -> some View {
+    func drawingPointerBehavior(isEnabled: Bool) -> some View {
         #if os(visionOS)
-        handPointerBehavior(.drawing)
+        if isEnabled {
+            handPointerBehavior(.drawing)
+        } else {
+            self
+        }
         #else
         self
         #endif
+    }
+
+    @ViewBuilder
+    func drawingHoverTracking(
+        isEnabled: Bool,
+        perform action: @escaping (HoverPhase) -> Void
+    ) -> some View {
+        if isEnabled {
+            onContinuousHover(perform: action)
+        } else {
+            self
+        }
     }
 }
 
