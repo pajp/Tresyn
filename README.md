@@ -1,34 +1,52 @@
 # Trackpad Torus
 
+This project renders a trackpad-controlled torus and text dashboard on a
+Looking Glass Go, with a Mac preview. An optional paired TLS server adds a shared
+3D drawing scene. `Tresyn` is the graphical drawing client; `swift-client`
+provides the reusable protocol library and a terminal client.
+
 ## Remote 3D Drawing
 
 Open `Drawing Server.command` to enable the TLS server, or run
-`.venv/bin/python torus.py --server`. Pair using just the one-time code
-shown on the display the first time. Later connections securely resume without a
-code using a secret bound to the remembered server certificate. The client remembers the server's certificate automatically
-and warns before accepting a changed certificate. Press **P** to show pairing; **Tab** switches
-between dashboard and drawing. On disconnect, a fresh pairing code appears
-automatically. Use **New code** to refresh it, **Back to scene** to return to your
-drawing, or **Shift+P** to disconnect a stuck client locally. The Swift client
-prompts for a replacement after an incorrect/expired code.
-The usual `Torus.command` runs the dashboard
-without opening a network socket.
+`.venv/bin/python torus.py --server`. The default listener uses port 8765 on all
+IPv4 interfaces; `--host` and `--port` override it. The usual `Torus.command`
+runs the dashboard without opening a network socket.
 
-The new drawing mode supports colored spheres, boxes, toruses, thick 3D lines,
-and polylines, including live stroke appends, updates, erasing, and clearing.
+Pair a client with the six-digit, single-use code shown on the display. The
+client remembers the server certificate and a resume credential, so later
+connections can resume without a code. A changed certificate requires explicit
+approval and a fresh code. Up to four clients can control the same scene; scene
+changes are pushed to the others. Press **P** to show pairing or issue another
+code, **Tab** to switch between dashboard and drawing, and **Shift+P** to
+disconnect all clients locally. The pairing screen has **New code** and
+**Back to scene** controls. A fresh code appears when the last client
+disconnects. The Swift terminal client prompts again after an incorrect or
+expired code.
 
-### Tresyn visionOS client
+Drawing mode supports colored spheres, boxes, toruses, thick 3D lines, and
+polylines, including live stroke appends, updates, deletion, and clearing.
+With the server enabled, the scene and current mode are saved to the Git-ignored
+`.drawing-local/drawing-scene.json` when the app closes normally and restored on
+the next server launch. The server writes this snapshot on normal shutdown, so
+a crash can lose changes made during that run.
 
-The `Tresyn` Xcode project provides a native visionOS drawing client with a live
-RealityKit preview of the 3D scene shown on Looking Glass Go. It supports strokes,
-spheres, boxes, and toruses at selectable depth. The preview keeps one RealityKit
-entity per drawing object and renders each stroke as a combined tube mesh, avoiding
-the per-point entity churn and SwiftUI state mutations that previously caused
-physical-device flicker and compositor corruption. The full supported depth range,
-including objects behind the display plane, remains visible in the preview.
+### Tresyn graphical client
 
-Tresyn can also persist the server's in-memory scene without any server or protocol
-extensions:
+Open `Tresyn/Tresyn.xcodeproj` in Xcode to run the app. It provides a RealityKit
+preview of the shared scene on visionOS and macOS. Its tools draw strokes,
+spheres, boxes, and toruses at selectable depth. **Select** can move, rotate,
+recolor, change depth, or delete an object; the app also has undo, redo, and
+clear controls. The preview keeps one RealityKit entity per object and combines
+each stroke into one tube mesh. Objects behind the display plane remain visible.
+On macOS, **Inspect** orbits the preview and **Front** resets its view.
+
+On launch, Tresyn attempts to resume its last paired server. If a connection
+drops, it retries automatically and reloads the server scene. It receives
+changes from other clients while connected. A deliberate **Disconnect** leaves
+the drawing on the display.
+
+Tresyn can also export and import scenes independently of the server's shutdown
+snapshot:
 
 - **Save Scene** requests a fresh scene snapshot from the connected server and
   exports it as a versioned JSON document.
@@ -36,9 +54,8 @@ extensions:
   rebuilds the scene using the existing `put` commands. If replay fails, the client
   attempts to restore the previous server snapshot.
 
-The server itself still keeps drawings only in memory. Restarting it loses the
-current scene unless it was saved from Tresyn first. Opening and saving therefore
-require an active server connection.
+Opening and saving from Tresyn require an active server connection. Its exported
+JSON files can be kept or shared separately from `.drawing-local/`.
 
 Build and run the macOS Swift demo:
 
