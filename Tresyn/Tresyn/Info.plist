@@ -13,7 +13,7 @@
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>nu.dll.tresyn.scene</string>
+					<string>nu.dll.tresyn.scene-document</string>
 			</array>
 		</dict>
 	</array>
@@ -22,21 +22,21 @@
 		<dict>
 			<key>UTTypeConformsTo</key>
 			<array>
-				<string>public.json</string>
+				<string>public.data</string>
 				<string>public.content</string>
 			</array>
 			<key>UTTypeDescription</key>
 			<string>Tresyn Scene</string>
 			<key>UTTypeIdentifier</key>
-			<string>nu.dll.tresyn.scene</string>
+				<string>nu.dll.tresyn.scene-document</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
 					<string>tres</string>
 				</array>
-				<key>public.mime-type</key>
-				<string>application/vnd.tresyn.scene+json</string>
+					<key>public.mime-type</key>
+					<string>application/vnd.tresyn.scene</string>
 			</dict>
 		</dict>
 	</array>

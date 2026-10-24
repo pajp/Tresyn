@@ -4,7 +4,7 @@ import TorusDrawingClient
 import UniformTypeIdentifiers
 
 extension UTType {
-    static let tresynScene = UTType(exportedAs: "nu.dll.tresyn.scene", conformingTo: .json)
+    static let tresynScene = UTType(exportedAs: "nu.dll.tresyn.scene-document", conformingTo: .data)
 }
 
 nonisolated struct SceneArchive: Codable, Sendable {

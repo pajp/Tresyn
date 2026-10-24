@@ -8,10 +8,49 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000000000131 /* TorusDrawingClient in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000151 /* TorusDrawingClient */; };
+		3A040D89308D47C5002E74B5 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040D88308D47C5002E74B5 /* Quartz.framework */; };
+		3A040D95308D47C5002E74B5 /* TresynPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D86308D47C5002E74B5 /* TresynPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3A040DA1308D4A08002E74B5 /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040DA0308D4A08002E74B5 /* QuickLookThumbnailing.framework */; };
+		3A040DA2308D4A08002E74B5 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040D88308D47C5002E74B5 /* Quartz.framework */; };
+		3A040DA9308D4A08002E74B5 /* TresynThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3A040D93308D47C5002E74B5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3A040D85308D47C5002E74B5;
+			remoteInfo = TresynPreview;
+		};
+		3A040DA7308D4A08002E74B5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3A040D9E308D4A08002E74B5;
+			remoteInfo = TresynThumbnail;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		3A040D9A308D47C5002E74B5 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = PlugIns;
+			files = (
+				3A040DA9308D4A08002E74B5 /* TresynThumbnail.appex in Embed Foundation Extensions */,
+				3A040D95308D47C5002E74B5 /* TresynPreview.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* Tresyn.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tresyn.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A040D86308D47C5002E74B5 /* TresynPreview.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TresynPreview.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A040D88308D47C5002E74B5 /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TresynThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		3A040DA0308D4A08002E74B5 /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -21,6 +60,20 @@
 				Info.plist,
 			);
 			target = 000000000000000100000000 /* Tresyn */;
+		};
+		3A040D99308D47C5002E74B5 /* Exceptions for "TresynPreview" folder in "TresynPreview" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3A040D85308D47C5002E74B5 /* TresynPreview */;
+		};
+		3A040DAD308D4A08002E74B5 /* Exceptions for "TresynThumbnail" folder in "TresynThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3A040D9E308D4A08002E74B5 /* TresynThumbnail */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -33,6 +86,22 @@
 			path = Tresyn;
 			sourceTree = "<group>";
 		};
+		3A040D8A308D47C5002E74B5 /* TresynPreview */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3A040D99308D47C5002E74B5 /* Exceptions for "TresynPreview" folder in "TresynPreview" target */,
+			);
+			path = TresynPreview;
+			sourceTree = "<group>";
+		};
+		3A040DA3308D4A08002E74B5 /* TresynThumbnail */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3A040DAD308D4A08002E74B5 /* Exceptions for "TresynThumbnail" folder in "TresynThumbnail" target */,
+			);
+			path = TresynThumbnail;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -42,6 +111,19 @@
 				000000000000000000000131 /* TorusDrawingClient in Frameworks */,
 			);
 		};
+		3A040D83308D47C5002E74B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				3A040D89308D47C5002E74B5 /* Quartz.framework in Frameworks */,
+			);
+		};
+		3A040D9C308D4A08002E74B5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				3A040DA1308D4A08002E74B5 /* QuickLookThumbnailing.framework in Frameworks */,
+				3A040DA2308D4A08002E74B5 /* Quartz.framework in Frameworks */,
+			);
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -49,6 +131,9 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* Tresyn */,
+				3A040D8A308D47C5002E74B5 /* TresynPreview */,
+				3A040DA3308D4A08002E74B5 /* TresynThumbnail */,
+				3A040D87308D47C5002E74B5 /* Frameworks */,
 				000000000000000000000020 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -57,8 +142,19 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000120 /* Tresyn.app */,
+				3A040D86308D47C5002E74B5 /* TresynPreview.appex */,
+				3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		3A040D87308D47C5002E74B5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3A040D88308D47C5002E74B5 /* Quartz.framework */,
+				3A040DA0308D4A08002E74B5 /* QuickLookThumbnailing.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -71,8 +167,13 @@
 				000000000000000120000000 /* Sources */,
 				000000000000000130000000 /* Frameworks */,
 				000000000000000140000000 /* Resources */,
+				3A040D9A308D47C5002E74B5 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
+			);
+			dependencies = (
+				3A040D94308D47C5002E74B5 /* PBXTargetDependency */,
+				3A040DA8308D4A08002E74B5 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				000000000000000000000010 /* Tresyn */,
@@ -85,6 +186,42 @@
 			productReference = 000000000000000000000120 /* Tresyn.app */;
 			productType = "com.apple.product-type.application";
 		};
+		3A040D85308D47C5002E74B5 /* TresynPreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3A040D96308D47C5002E74B5 /* Build configuration list for PBXNativeTarget "TresynPreview" */;
+			buildPhases = (
+				3A040D82308D47C5002E74B5 /* Sources */,
+				3A040D83308D47C5002E74B5 /* Frameworks */,
+				3A040D84308D47C5002E74B5 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				3A040D8A308D47C5002E74B5 /* TresynPreview */,
+			);
+			name = TresynPreview;
+			productName = TresynPreview;
+			productReference = 3A040D86308D47C5002E74B5 /* TresynPreview.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		3A040D9E308D4A08002E74B5 /* TresynThumbnail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3A040DAA308D4A08002E74B5 /* Build configuration list for PBXNativeTarget "TresynThumbnail" */;
+			buildPhases = (
+				3A040D9B308D4A08002E74B5 /* Sources */,
+				3A040D9C308D4A08002E74B5 /* Frameworks */,
+				3A040D9D308D4A08002E74B5 /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				3A040DA3308D4A08002E74B5 /* TresynThumbnail */,
+			);
+			name = TresynThumbnail;
+			productName = TresynThumbnail;
+			productReference = 3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -92,11 +229,17 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
+				LastSwiftUpdateCheck = 2700;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					000000000000000100000000 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					3A040D85308D47C5002E74B5 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					3A040D9E308D4A08002E74B5 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -118,12 +261,24 @@
 			projectRoot = "";
 			targets = (
 				000000000000000100000000 /* Tresyn */,
+				3A040D85308D47C5002E74B5 /* TresynPreview */,
+				3A040D9E308D4A08002E74B5 /* TresynThumbnail */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		000000000000000140000000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		3A040D84308D47C5002E74B5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		3A040D9D308D4A08002E74B5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
 			);
@@ -136,7 +291,30 @@
 			files = (
 			);
 		};
+		3A040D82308D47C5002E74B5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		3A040D9B308D4A08002E74B5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3A040D94308D47C5002E74B5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3A040D85308D47C5002E74B5 /* TresynPreview */;
+			targetProxy = 3A040D93308D47C5002E74B5 /* PBXContainerItemProxy */;
+		};
+		3A040DA8308D4A08002E74B5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3A040D9E308D4A08002E74B5 /* TresynThumbnail */;
+			targetProxy = 3A040DA7308D4A08002E74B5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		000000000000000011000000 /* Debug configuration for PBXProject "Tresyn" */ = {
@@ -375,6 +553,126 @@
 			};
 			name = Release;
 		};
+		3A040D97308D47C5002E74B5 /* Debug configuration for PBXNativeTarget "TresynPreview" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7BJ49E34RD;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TresynPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TresynPreview;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nu.dll.Tresyn.TresynPreview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3A040D98308D47C5002E74B5 /* Release configuration for PBXNativeTarget "TresynPreview" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7BJ49E34RD;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TresynPreview/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TresynPreview;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nu.dll.Tresyn.TresynPreview;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		3A040DAB308D4A08002E74B5 /* Debug configuration for PBXNativeTarget "TresynThumbnail" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7BJ49E34RD;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TresynThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TresynThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nu.dll.Tresyn.TresynThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		3A040DAC308D4A08002E74B5 /* Release configuration for PBXNativeTarget "TresynThumbnail" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7BJ49E34RD;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = TresynThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = TresynThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = nu.dll.Tresyn.TresynThumbnail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -391,6 +689,22 @@
 			buildConfigurations = (
 				000000000000000111000000 /* Debug configuration for PBXNativeTarget "Tresyn" */,
 				000000000000000112000000 /* Release configuration for PBXNativeTarget "Tresyn" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		3A040D96308D47C5002E74B5 /* Build configuration list for PBXNativeTarget "TresynPreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A040D97308D47C5002E74B5 /* Debug configuration for PBXNativeTarget "TresynPreview" */,
+				3A040D98308D47C5002E74B5 /* Release configuration for PBXNativeTarget "TresynPreview" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		3A040DAA308D4A08002E74B5 /* Build configuration list for PBXNativeTarget "TresynThumbnail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A040DAB308D4A08002E74B5 /* Debug configuration for PBXNativeTarget "TresynThumbnail" */,
+				3A040DAC308D4A08002E74B5 /* Release configuration for PBXNativeTarget "TresynThumbnail" */,
 			);
 			defaultConfigurationName = Release;
 		};

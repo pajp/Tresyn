@@ -28,7 +28,7 @@ enum SceneThumbnailRenderer {
         let camera = SCNNode()
         camera.camera = SCNCamera()
         camera.camera?.usesOrthographicProjection = true
-        camera.camera?.orthographicScale = 5.2
+        camera.camera?.orthographicScale = 4.65
         camera.camera?.zNear = 0.01
         camera.camera?.zFar = 20
         camera.position = SCNVector3(0, 0, 8)
@@ -111,8 +111,12 @@ enum SceneThumbnailRenderer {
         let radius = object.radius ?? 0.015
 
         for (start, end) in zip(points, points.dropFirst()) {
-            let offset = SCNVector3(end.x - start.x, end.y - start.y, end.z - start.z)
-            let length = sqrt(offset.x * offset.x + offset.y * offset.y + offset.z * offset.z)
+            let offset = SIMD3<Float>(
+                Float(end.x - start.x),
+                Float(end.y - start.y),
+                Float(end.z - start.z)
+            )
+            let length = simd_length(offset)
             guard length > 0.0001 else { continue }
 
             let segment = SCNNode(geometry: SCNCylinder(radius: radius, height: CGFloat(length)))
@@ -123,7 +127,7 @@ enum SceneThumbnailRenderer {
             )
             segment.simdOrientation = simd_quatf(
                 from: SIMD3<Float>(0, 1, 0),
-                to: SIMD3<Float>(offset.x, offset.y, offset.z) / length
+                to: offset / length
             )
             root.addChildNode(segment)
         }
