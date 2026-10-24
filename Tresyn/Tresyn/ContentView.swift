@@ -20,6 +20,9 @@ struct ContentView: View {
         Group {
             if session.isConnected { studio } else { pairing }
         }
+        .task {
+            session.reconnectToLastServerIfAvailable()
+        }
         .frame(
             minWidth: 700,
             idealWidth: 860,

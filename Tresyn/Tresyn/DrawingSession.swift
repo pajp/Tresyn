@@ -74,6 +74,7 @@ final class DrawingSession: ObservableObject {
     private var sceneUpdateTask: Task<Void, Never>?
     private var reconnectTask: Task<Void, Never>?
     private var shouldReconnect = false
+    private var hasAttemptedAutomaticReconnect = false
     private var sceneRevision = -1
 
     var color: Color { palette[selectedColor].color }
@@ -87,6 +88,20 @@ final class DrawingSession: ObservableObject {
 
     init() {
         host = UserDefaults.standard.string(forKey: "lastDrawingServerHost") ?? "looking-glass.local"
+        port = UserDefaults.standard.string(forKey: "lastDrawingServerPort") ?? "8765"
+    }
+
+    func reconnectToLastServerIfAvailable() {
+        guard !hasAttemptedAutomaticReconnect else { return }
+        hasAttemptedAutomaticReconnect = true
+
+        let cleanHost = host.trimmingCharacters(in: .whitespaces)
+        guard let serverPort = UInt16(port),
+              !cleanHost.isEmpty,
+              UserDefaults.standard.string(forKey: "lastDrawingServerHost") != nil,
+              TorusClient(host: cleanHost, port: serverPort).canResume() else { return }
+
+        connect()
     }
 
     private func previewObject(_ object: DrawingObject) -> PreviewObject {
@@ -95,6 +110,7 @@ final class DrawingSession: ObservableObject {
     }
 
     func connect(approvedCertificate: String? = nil) {
+        guard !isConnected, !isConnecting else { return }
         let cleanHost = host.trimmingCharacters(in: .whitespaces)
         guard let port = UInt16(port), !cleanHost.isEmpty else {
             status = "Use a server address and port."
@@ -127,6 +143,7 @@ final class DrawingSession: ObservableObject {
                 redoStack.removeAll()
                 updateHistoryAvailability()
                 UserDefaults.standard.set(cleanHost, forKey: "lastDrawingServerHost")
+                UserDefaults.standard.set(String(port), forKey: "lastDrawingServerPort")
                 client = newClient
                 isConnected = true
                 isConnecting = false
