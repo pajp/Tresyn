@@ -8,6 +8,11 @@ import AppKit
 struct ContentView: View {
     private static let selectionDragThreshold: CGFloat = 10
 
+    private struct PendingSceneOpen {
+        let archive: SceneArchive
+        let displayName: String
+    }
+
     @Environment(\.self) private var environment
     @StateObject private var session = DrawingSession()
     @State private var handLocation: CGPoint?
@@ -16,6 +21,8 @@ struct ContentView: View {
     @State private var isManipulatingObject = false
     @State private var isAdjustingView = false
     @State private var viewResetRequest = 0
+    @State private var pendingSceneOpen: PendingSceneOpen?
+    @State private var isConfirmingSceneReplacement = false
     #if os(macOS)
     @State private var lastRotationDragTranslation = CGSize.zero
     @State private var lastMagnification = 1.0
@@ -52,7 +59,21 @@ struct ContentView: View {
         } message: {
             Text("Only continue if you expected this Drawing Server. Its saved certificate no longer matches.")
         }
-        .fileImporter(isPresented: $session.isImportingScene, allowedContentTypes: [.json]) { result in
+        .alert(
+            "Replace Current Scene?",
+            isPresented: $isConfirmingSceneReplacement,
+            presenting: pendingSceneOpen
+        ) { pendingScene in
+            Button("Replace", role: .destructive) {
+                openPendingScene(pendingScene)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSceneOpen = nil
+            }
+        } message: { pendingScene in
+            Text("Opening “\(pendingScene.displayName)” will replace the scene currently on the display.")
+        }
+        .fileImporter(isPresented: $session.isImportingScene, allowedContentTypes: [.tresynScene]) { result in
             guard case .success(let url) = result else {
                 if case .failure(let error) = result {
                     session.reportSceneTransfer("Couldn’t open scene: \(error.localizedDescription)")
@@ -65,16 +86,26 @@ struct ContentView: View {
                 do {
                     let data = try Data(contentsOf: url)
                     let archive = try JSONDecoder().decode(SceneArchive.self, from: data)
-                    try await session.openScene(archive)
+                    _ = try archive.validatedObjects()
+                    prepareSceneOpen(archive, displayName: url.lastPathComponent)
                 } catch {
                     session.reportSceneTransfer("Couldn’t open scene: \(error.localizedDescription)")
                 }
             }
         }
+        .onOpenURL { url in
+            Task {
+                await loadSceneForOpening(from: url)
+            }
+        }
+        .onChange(of: session.isConnected) { _, isConnected in
+            guard isConnected else { return }
+            presentPendingSceneWhenReady()
+        }
         .fileExporter(
             isPresented: $session.isExportingScene,
             document: session.exportDocument,
-            contentType: .json,
+            contentType: .tresynScene,
             defaultFilename: "Tresyn Scene"
         ) { result in
             switch result {
@@ -105,6 +136,55 @@ struct ContentView: View {
                 .foregroundStyle(.secondary).frame(maxWidth: 480)
         }
         .padding(40)
+    }
+
+    private func loadSceneForOpening(from url: URL) async {
+        guard url.pathExtension.lowercased() == "tres" else {
+            session.reportSceneTransfer("Couldn’t open scene: Unsupported file type.")
+            return
+        }
+
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer { if hasAccess { url.stopAccessingSecurityScopedResource() } }
+
+        do {
+            let data = try Data(contentsOf: url)
+            let archive = try JSONDecoder().decode(SceneArchive.self, from: data)
+            _ = try archive.validatedObjects()
+            prepareSceneOpen(archive, displayName: url.lastPathComponent)
+        } catch {
+            session.reportSceneTransfer("Couldn’t open scene: \(error.localizedDescription)")
+        }
+    }
+
+    private func prepareSceneOpen(_ archive: SceneArchive, displayName: String) {
+        pendingSceneOpen = PendingSceneOpen(archive: archive, displayName: displayName)
+        if session.isConnected {
+            presentPendingSceneWhenReady()
+        } else {
+            session.reportSceneTransfer("Connect to open “\(displayName)”.")
+            session.reconnectToLastServerIfAvailable()
+        }
+    }
+
+    private func presentPendingSceneWhenReady() {
+        guard let pendingSceneOpen, session.isConnected else { return }
+        if session.previewObjects.isEmpty {
+            openPendingScene(pendingSceneOpen)
+        } else {
+            isConfirmingSceneReplacement = true
+        }
+    }
+
+    private func openPendingScene(_ pendingScene: PendingSceneOpen) {
+        pendingSceneOpen = nil
+        Task {
+            do {
+                try await session.openScene(pendingScene.archive)
+            } catch {
+                session.reportSceneTransfer("Couldn’t open scene: \(error.localizedDescription)")
+            }
+        }
     }
 
     private var studio: some View {

@@ -3,6 +3,10 @@ import SwiftUI
 import TorusDrawingClient
 import UniformTypeIdentifiers
 
+extension UTType {
+    static let tresynScene = UTType(exportedAs: "nu.dll.tresyn.scene", conformingTo: .json)
+}
+
 nonisolated struct SceneArchive: Codable, Sendable {
     static let currentVersion = 1
 
@@ -55,7 +59,7 @@ nonisolated enum SceneArchiveError: LocalizedError {
 
 @MainActor
 final class SceneExportDocument: WritableDocument {
-    static let writableContentTypes: [UTType] = [.json]
+    static let writableContentTypes: [UTType] = [.tresynScene]
 
     let archive: SceneArchive
 
