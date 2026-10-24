@@ -1,9 +1,10 @@
 # Tresyn
 
-This project renders a trackpad-controlled torus and text dashboard on a
-Looking Glass Go, with a Mac preview. An optional paired TLS server adds a shared
-3D drawing scene. `Tresyn` is the graphical drawing client; `swift-client`
-provides the reusable protocol library and a terminal client.
+This project contains of four parts:
+- A "Drawing Server" python application that can receive drawing commands used to display a scene on a connected Looking Glass Go, with a preview window on the regular screen.
+- A Swift library for sending drawing commands to the drawing server
+- A macOS and visionOS app using said library to draw and manipulate simple 3D objects on the display
+- A dashboard with information from a text file or iCal feed (torus.py) which has very little to do with the above
 
 ## Remote 3D Drawing
 
