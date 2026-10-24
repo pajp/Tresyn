@@ -7,9 +7,6 @@ struct ContentView: View {
 
     @Environment(\.self) private var environment
     @StateObject private var session = DrawingSession()
-    @State private var isImportingScene = false
-    @State private var isExportingScene = false
-    @State private var exportDocument = SceneExportDocument()
     @State private var handLocation: CGPoint?
     @State private var isDirectInteractionActive = false
     @State private var isMovingSelection = false
@@ -24,6 +21,7 @@ struct ContentView: View {
         .task {
             session.reconnectToLastServerIfAvailable()
         }
+        .focusedSceneObject(session)
         .frame(
             minWidth: 700,
             idealWidth: 860,
@@ -45,7 +43,7 @@ struct ContentView: View {
         } message: {
             Text("Only continue if you expected this Drawing Server. Its saved certificate no longer matches.")
         }
-        .fileImporter(isPresented: $isImportingScene, allowedContentTypes: [.json]) { result in
+        .fileImporter(isPresented: $session.isImportingScene, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else {
                 if case .failure(let error) = result {
                     session.reportSceneTransfer("Couldn’t open scene: \(error.localizedDescription)")
@@ -65,8 +63,8 @@ struct ContentView: View {
             }
         }
         .fileExporter(
-            isPresented: $isExportingScene,
-            document: exportDocument,
+            isPresented: $session.isExportingScene,
+            document: session.exportDocument,
             contentType: .json,
             defaultFilename: "Tresyn Scene"
         ) { result in
@@ -234,16 +232,20 @@ struct ContentView: View {
     private var sceneActions: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 10) {
+                #if !os(macOS)
                 openSceneButton
                 saveSceneButton
+                #endif
                 clearSceneButton
                 disconnectButton
             }
             .fixedSize(horizontal: true, vertical: false)
             VStack(spacing: 8) {
                 HStack(spacing: 10) {
+                    #if !os(macOS)
                     openSceneButton
                     saveSceneButton
+                    #endif
                 }
                 HStack(spacing: 10) {
                     clearSceneButton
@@ -261,7 +263,7 @@ struct ContentView: View {
 
     private var openSceneButton: some View {
         Button {
-            isImportingScene = true
+            session.requestSceneOpen()
         } label: {
             Label("Open", systemImage: "folder")
         }
@@ -269,14 +271,7 @@ struct ContentView: View {
 
     private var saveSceneButton: some View {
         Button {
-            Task {
-                do {
-                    exportDocument = SceneExportDocument(archive: try await session.captureScene())
-                    isExportingScene = true
-                } catch {
-                    session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
-                }
-            }
+            session.requestSceneSave()
         } label: {
             Label("Save", systemImage: "square.and.arrow.down")
         }

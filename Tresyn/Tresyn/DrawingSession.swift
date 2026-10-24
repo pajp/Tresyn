@@ -46,6 +46,9 @@ final class DrawingSession: ObservableObject {
     @Published private(set) var canRedo = false
     @Published var pendingCertificate: String?
     @Published var isTransferringScene = false
+    @Published var isImportingScene = false
+    @Published var isExportingScene = false
+    @Published var exportDocument = SceneExportDocument()
 
     private var client: TorusClient?
     private var objectCounter = 0
@@ -81,6 +84,27 @@ final class DrawingSession: ObservableObject {
     init() {
         host = UserDefaults.standard.string(forKey: "lastDrawingServerHost") ?? "looking-glass.local"
         port = UserDefaults.standard.string(forKey: "lastDrawingServerPort") ?? "8765"
+    }
+
+    var canTransferScene: Bool {
+        isConnected && !isTransferringScene
+    }
+
+    func requestSceneOpen() {
+        guard canTransferScene else { return }
+        isImportingScene = true
+    }
+
+    func requestSceneSave() {
+        guard canTransferScene else { return }
+        Task {
+            do {
+                exportDocument = SceneExportDocument(archive: try await captureScene())
+                isExportingScene = true
+            } catch {
+                reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
+            }
+        }
     }
 
     func reconnectToLastServerIfAvailable() {
