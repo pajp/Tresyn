@@ -9,10 +9,10 @@
 /* Begin PBXBuildFile section */
 		000000000000000000000131 /* TorusDrawingClient in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000000000151 /* TorusDrawingClient */; };
 		3A040D89308D47C5002E74B5 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040D88308D47C5002E74B5 /* Quartz.framework */; };
-		3A040D95308D47C5002E74B5 /* TresynPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D86308D47C5002E74B5 /* TresynPreview.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3A040D95308D47C5002E74B5 /* TresynPreview.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D86308D47C5002E74B5 /* TresynPreview.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3A040DA1308D4A08002E74B5 /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040DA0308D4A08002E74B5 /* QuickLookThumbnailing.framework */; };
 		3A040DA2308D4A08002E74B5 /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3A040D88308D47C5002E74B5 /* Quartz.framework */; };
-		3A040DA9308D4A08002E74B5 /* TresynThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3A040DA9308D4A08002E74B5 /* TresynThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3A040D9F308D4A08002E74B5 /* TresynThumbnail.appex */; platformFilters = (macos, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -306,11 +306,17 @@
 /* Begin PBXTargetDependency section */
 		3A040D94308D47C5002E74B5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
 			target = 3A040D85308D47C5002E74B5 /* TresynPreview */;
 			targetProxy = 3A040D93308D47C5002E74B5 /* PBXContainerItemProxy */;
 		};
 		3A040DA8308D4A08002E74B5 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
+			platformFilters = (
+				macos,
+			);
 			target = 3A040D9E308D4A08002E74B5 /* TresynThumbnail */;
 			targetProxy = 3A040DA7308D4A08002E74B5 /* PBXContainerItemProxy */;
 		};
