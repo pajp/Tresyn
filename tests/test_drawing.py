@@ -43,7 +43,8 @@ class SceneTests(unittest.TestCase):
         self.assertEqual(len(scene.objects["stroke"]["points"]), 3)
 
     def test_geometry_and_transform(self):
-        for kind in ("sphere", "box", "torus", "line", "polyline"):
+        for kind in ("sphere", "box", "torus", "tetrahedron", "cylinder", "cone",
+                     "capsule", "line", "polyline"):
             obj = validate_object({"id": "shape", "type": kind,
                                    "points": [[0, 0, 0], [1, 1, 1]],
                                    "position": [0.1, 0.2, 0.3], "scale": [2, 1, 0.5]})
@@ -57,6 +58,13 @@ class SceneTests(unittest.TestCase):
     def test_stroke_reversal_does_not_generate_nan(self):
         obj = validate_object({"id": "s", "type": "polyline", "points": [[0, 0, 0], [1, 0, 0], [0, 0, 0]]})
         self.assertTrue(np.isfinite(geometry(obj)).all())
+
+    def test_tetrahedron_normals_point_outward(self):
+        vertices = geometry(validate_object({"id": "t", "type": "tetrahedron"}))
+        solid_center = np.array([0, -0.125, 0])
+        for triangle in vertices.reshape(-1, 3, 6):
+            face_center = triangle[:, :3].mean(axis=0)
+            self.assertGreater(np.dot(triangle[0, 3:], face_center - solid_center), 0)
 
 
 class PairingTests(unittest.TestCase):

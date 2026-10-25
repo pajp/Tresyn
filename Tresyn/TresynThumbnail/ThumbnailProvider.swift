@@ -176,6 +176,25 @@ private enum SceneRenderer {
                 width: radius * 2,
                 height: radius * 2
             ))
+        case "tetrahedron", "cone":
+            let objectSize = object.size ?? [0.36, 0.42, 0.36]
+            let width = max(5, (objectSize[safe: 0] ?? 0.36) / sceneWidth * canvas.width * scaleX)
+            let height = max(5, (objectSize[safe: 1] ?? 0.42) / sceneHeight * canvas.height * scaleY)
+            context.move(to: CGPoint(x: center.x, y: center.y - height / 2))
+            context.addLine(to: CGPoint(x: center.x - width / 2, y: center.y + height / 2))
+            context.addLine(to: CGPoint(x: center.x + width / 2, y: center.y + height / 2))
+            context.closePath()
+            context.fillPath()
+        case "cylinder", "capsule":
+            let objectSize = object.size ?? [0.32, 0.48, 0.32]
+            let width = max(5, (objectSize[safe: 0] ?? 0.32) / sceneWidth * canvas.width * scaleX)
+            let height = max(5, (objectSize[safe: 1] ?? 0.48) / sceneHeight * canvas.height * scaleY)
+            let radius = object.type == "capsule" ? width / 2 : width * 0.15
+            let path = CGPath(roundedRect: CGRect(x: center.x - width / 2, y: center.y - height / 2,
+                                                  width: width, height: height),
+                              cornerWidth: radius, cornerHeight: radius, transform: nil)
+            context.addPath(path)
+            context.fillPath()
         default:
             context.fillEllipse(in: CGRect(x: center.x - 3, y: center.y - 3, width: 6, height: 6))
         }

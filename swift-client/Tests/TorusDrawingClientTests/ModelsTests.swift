@@ -11,6 +11,16 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(json["type"] as? String, "torus")
     }
 
+    func testAdditionalPrimitiveWireKeys() throws {
+        let primitives: [Primitive] = [.tetrahedron, .cylinder, .cone, .capsule]
+        let encodedTypes = try primitives.map { primitive in
+            let object = DrawingObject(id: primitive.rawValue, type: primitive)
+            let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(object)) as! [String: Any]
+            return json["type"] as? String
+        }
+        XCTAssertEqual(encodedTypes, ["tetrahedron", "cylinder", "cone", "capsule"])
+    }
+
     func testExtensibleJSONRoundTrip() throws {
         let value = JSONValue.object(["custom": .array([.number(2), .bool(true), .null, .string("x")])])
         XCTAssertEqual(try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value)), value)

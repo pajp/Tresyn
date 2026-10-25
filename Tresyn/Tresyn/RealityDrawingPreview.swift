@@ -240,6 +240,22 @@ struct RealityDrawingPreview: View {
             entity = ModelEntity(mesh: torusMesh(majorRadius: Float(object.majorRadius ?? 0.4),
                                                   minorRadius: Float(object.minorRadius ?? 0.12)),
                                  materials: [material])
+        case .tetrahedron:
+            entity = ModelEntity(mesh: tetrahedronMesh(size: vector(object.size ?? [0.5, 0.5, 0.5])),
+                                 materials: [material])
+        case .cylinder:
+            entity = ModelEntity(mesh: .generateCylinder(height: Float(object.size?[safe: 1] ?? 0.5),
+                                                          radius: Float(object.radius ?? 0.25)),
+                                 materials: [material])
+        case .cone:
+            entity = ModelEntity(mesh: .generateCone(height: Float(object.size?[safe: 1] ?? 0.5),
+                                                      radius: Float(object.radius ?? 0.25)),
+                                 materials: [material])
+        case .capsule:
+            let shape = ShapeResource.generateCapsule(height: Float(object.size?[safe: 1] ?? 0.5),
+                                                      radius: Float(object.radius ?? 0.15))
+            entity = ModelEntity(mesh: MeshResource(shape: shape),
+                                 materials: [material])
         case .line, .polyline:
             entity = ModelEntity(mesh: strokeMesh(for: object) ?? .generateSphere(radius: 0.001),
                                  materials: [material])
@@ -275,6 +291,17 @@ struct RealityDrawingPreview: View {
                 minorRadius: Float(object.minorRadius ?? 0.12),
                 acquisitionMargin: acquisitionMargin
             )
+        case .tetrahedron, .cone:
+            let size = vector(object.size ?? [0.5, 0.5, 0.5])
+            return [.generateBox(size: size + SIMD3(repeating: acquisitionMargin * 2))]
+        case .cylinder:
+            let height = Float(object.size?[safe: 1] ?? 0.5) + acquisitionMargin * 2
+            let radius = Float(object.radius ?? 0.25) + acquisitionMargin
+            return [.generateBox(size: SIMD3(radius * 2, height, radius * 2))]
+        case .capsule:
+            let height = Float(object.size?[safe: 1] ?? 0.5) + acquisitionMargin * 2
+            let radius = Float(object.radius ?? 0.15) + acquisitionMargin
+            return [.generateCapsule(height: height, radius: radius)]
         case .line, .polyline:
             return strokeCollisionShapes(for: object, acquisitionMargin: acquisitionMargin)
         }
@@ -412,6 +439,28 @@ struct RealityDrawingPreview: View {
         descriptor.positions = .init(positions)
         descriptor.normals = .init(normals)
         descriptor.primitives = .triangles(indices)
+        return (try? MeshResource.generate(from: [descriptor])) ?? .generateSphere(radius: 0.001)
+    }
+
+    private func tetrahedronMesh(size: SIMD3<Float>) -> MeshResource {
+        let vertices: [SIMD3<Float>] = [
+            [0, size.y / 2, 0],
+            [-size.x / 2, -size.y / 2, size.z / 2],
+            [size.x / 2, -size.y / 2, size.z / 2],
+            [0, -size.y / 2, -size.z / 2]
+        ]
+        let faces = [(0, 1, 2), (0, 2, 3), (0, 3, 1), (1, 3, 2)]
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        for (a, b, c) in faces {
+            let normal = simd_normalize(simd_cross(vertices[b] - vertices[a], vertices[c] - vertices[a]))
+            positions += [vertices[a], vertices[b], vertices[c]]
+            normals += [normal, normal, normal]
+        }
+        var descriptor = MeshDescriptor()
+        descriptor.positions = .init(positions)
+        descriptor.normals = .init(normals)
+        descriptor.primitives = .triangles(Array(0..<UInt32(positions.count)))
         return (try? MeshResource.generate(from: [descriptor])) ?? .generateSphere(radius: 0.001)
     }
 }

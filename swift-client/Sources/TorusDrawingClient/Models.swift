@@ -28,7 +28,9 @@ public enum JSONValue: Codable, Sendable, Equatable {
 }
 
 public enum DisplayMode: String, Codable, Sendable { case dashboard, drawing }
-public enum Primitive: String, Codable, Sendable { case sphere, box, torus, line, polyline }
+public enum Primitive: String, Codable, Sendable {
+    case sphere, box, torus, tetrahedron, cylinder, cone, capsule, line, polyline
+}
 
 /// Arrays use protocol order: XYZ vectors, XYZW quaternion, RGB color.
 public struct DrawingObject: Codable, Sendable {

@@ -454,7 +454,7 @@ struct ContentView: View {
                     } else {
                         session.continueStroke(at: value.location, in: size)
                     }
-                case .sphere, .box, .torus:
+                case .sphere, .box, .torus, .tetrahedron, .cylinder, .cone, .capsule:
                     break
                 }
             }
@@ -490,7 +490,7 @@ struct ContentView: View {
                 } else {
                     session.continueStroke(at: value.location, in: size)
                 }
-            case .sphere, .box, .torus:
+            case .sphere, .box, .torus, .tetrahedron, .cylinder, .cone, .capsule:
                 break
             }
         }
@@ -566,7 +566,7 @@ struct ContentView: View {
             isMovingSelection = false
         case .stroke:
             session.endStroke()
-        case .sphere, .box, .torus:
+        case .sphere, .box, .torus, .tetrahedron, .cylinder, .cone, .capsule:
             session.place(location, in: size)
         }
     }

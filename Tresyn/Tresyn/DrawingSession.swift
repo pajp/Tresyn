@@ -12,6 +12,7 @@ final class DrawingSession: ObservableObject {
 
     enum Tool: String, CaseIterable, Identifiable {
         case select = "Select", stroke = "Stroke", sphere = "Sphere", box = "Box", torus = "Torus"
+        case tetrahedron = "Tetrahedron", cylinder = "Cylinder", cone = "Cone", capsule = "Capsule"
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -20,6 +21,10 @@ final class DrawingSession: ObservableObject {
             case .sphere: "circle.fill"
             case .box: "cube.fill"
             case .torus: "circle.dotted"
+            case .tetrahedron: "pyramid.fill"
+            case .cylinder: "cylinder.fill"
+            case .cone: "cone.fill"
+            case .capsule: "capsule.fill"
             }
         }
     }
@@ -885,6 +890,14 @@ final class DrawingSession: ObservableObject {
             object = DrawingObject(id: id, type: .box, position: point, color: rgb, size: [0.32, 0.32, 0.32])
         case .torus:
             object = DrawingObject(id: id, type: .torus, position: point, color: rgb, majorRadius: 0.22, minorRadius: 0.07)
+        case .tetrahedron:
+            object = DrawingObject(id: id, type: .tetrahedron, position: point, color: rgb, size: [0.36, 0.36, 0.36])
+        case .cylinder:
+            object = DrawingObject(id: id, type: .cylinder, position: point, color: rgb, radius: 0.16, size: [0.32, 0.42, 0.32])
+        case .cone:
+            object = DrawingObject(id: id, type: .cone, position: point, color: rgb, radius: 0.18, size: [0.36, 0.42, 0.36])
+        case .capsule:
+            object = DrawingObject(id: id, type: .capsule, position: point, color: rgb, radius: 0.13, size: [0.26, 0.48, 0.26])
         case .stroke:
             return
         }
@@ -1091,6 +1104,8 @@ final class DrawingSession: ObservableObject {
         case .sphere:
             halfExtents = SIMD3(repeating: object.radius ?? 0.25)
         case .box:
+            halfExtents = vector3(object.size ?? [0.5, 0.5, 0.5]) / 2
+        case .tetrahedron, .cylinder, .cone, .capsule:
             halfExtents = vector3(object.size ?? [0.5, 0.5, 0.5]) / 2
         case .torus:
             let outerRadius = (object.majorRadius ?? 0.4) + (object.minorRadius ?? 0.12)

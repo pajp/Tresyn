@@ -63,6 +63,24 @@ enum USDZExporter {
             // basis before applying the object's stored transform.
             geometryNode.eulerAngles.x = .pi / 2
             node.addChildNode(geometryNode)
+        case .tetrahedron:
+            node = SCNNode(geometry: tetrahedronGeometry(size: object.size ?? [0.5, 0.5, 0.5]))
+        case .cylinder:
+            node = SCNNode(geometry: SCNCylinder(
+                radius: object.radius ?? 0.25,
+                height: object.size?[safe: 1] ?? 0.5
+            ))
+        case .cone:
+            node = SCNNode(geometry: SCNCone(
+                topRadius: 0,
+                bottomRadius: object.radius ?? 0.25,
+                height: object.size?[safe: 1] ?? 0.5
+            ))
+        case .capsule:
+            node = SCNNode(geometry: SCNCapsule(
+                capRadius: object.radius ?? 0.15,
+                height: object.size?[safe: 1] ?? 0.5
+            ))
         case .line, .polyline:
             node = strokeNode(for: object)
         }
@@ -71,6 +89,24 @@ enum USDZExporter {
         applyTransform(of: object, to: node)
         applyMaterial(color: object.color, to: node)
         return node
+    }
+
+    private static func tetrahedronGeometry(size: [Double]) -> SCNGeometry {
+        let width = Float(size[safe: 0] ?? 0.5)
+        let height = Float(size[safe: 1] ?? 0.5)
+        let depth = Float(size[safe: 2] ?? 0.5)
+        let vertices = [
+            SCNVector3(0, height / 2, 0),
+            SCNVector3(-width / 2, -height / 2, depth / 2),
+            SCNVector3(width / 2, -height / 2, depth / 2),
+            SCNVector3(0, -height / 2, -depth / 2)
+        ]
+        let indices: [Int32] = [0, 1, 2, 0, 2, 3, 0, 3, 1, 1, 3, 2]
+        let source = SCNGeometrySource(vertices: vertices)
+        let data = indices.withUnsafeBytes { Data($0) }
+        let element = SCNGeometryElement(data: data, primitiveType: .triangles,
+                                         primitiveCount: 4, bytesPerIndex: MemoryLayout<Int32>.size)
+        return SCNGeometry(sources: [source], elements: [element])
     }
 
     private static func boxGeometry(width: Double, height: Double, length: Double) -> SCNGeometry {

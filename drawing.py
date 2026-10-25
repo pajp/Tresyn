@@ -4,7 +4,8 @@ import math
 import numpy as np
 
 
-PRIMITIVES = ("sphere", "box", "torus", "line", "polyline")
+PRIMITIVES = ("sphere", "box", "torus", "tetrahedron", "cylinder", "cone",
+              "capsule", "line", "polyline")
 MAX_OBJECTS = 128
 MAX_POINTS = 1024
 MAX_SCENE_POINTS = 8192
@@ -58,8 +59,11 @@ def validate_object(value):
     if norm < 1e-6:
         raise CommandError("Rotation quaternion must be nonzero")
     obj["rotation"] = (np.array(obj["rotation"]) / norm).tolist()
-    if kind == "box":
+    if kind in ("box", "tetrahedron"):
         obj["size"] = vector(value.get("size", [0.5, 0.5, 0.5]), 3, 0.001, 5)
+    elif kind in ("cylinder", "cone", "capsule"):
+        obj["size"] = vector(value.get("size", [0.5, 0.5, 0.5]), 3, 0.001, 5)
+        obj["radius"] = number(value.get("radius", 0.25), 0.005, 2.5)
     elif kind == "torus":
         obj["major_radius"] = number(value.get("major_radius", 0.4), 0.01, 2)
         obj["minor_radius"] = number(value.get("minor_radius", 0.12), 0.005, 1)
@@ -138,6 +142,40 @@ def grid_triangles(positions, normals):
                     axis=2).reshape(-1, 6).astype(np.float32)
 
 
+def flat_triangles(vertices, faces):
+    """Expand indexed triangles with a unit face normal for each vertex."""
+    rows = []
+    vertices = np.asarray(vertices, dtype=np.float32)
+    for a, b, c in faces:
+        triangle = vertices[[a, b, c]]
+        normal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+        normal /= np.linalg.norm(normal)
+        rows.extend(np.concatenate((point, normal)) for point in triangle)
+    return np.asarray(rows, dtype=np.float32)
+
+
+def radial_geometry(radius, height, top_radius=None, sides=32):
+    """Build a closed Y-axis cylinder or cone with flat caps."""
+    top_radius = radius if top_radius is None else top_radius
+    vertices = []
+    for y, ring_radius in ((-height / 2, radius), (height / 2, top_radius)):
+        vertices.extend((ring_radius * math.cos(angle), y, ring_radius * math.sin(angle))
+                        for angle in np.linspace(0, math.tau, sides, endpoint=False))
+    vertices.extend(((0, -height / 2, 0), (0, height / 2, 0)))
+    faces = []
+    for side in range(sides):
+        next_side = (side + 1) % sides
+        if top_radius > 0:
+            faces.extend(((side, sides + side, next_side),
+                          (next_side, sides + side, sides + next_side)))
+        else:
+            faces.append((side, sides + side, next_side))
+        faces.append((2 * sides, next_side, side))
+        if top_radius > 0:
+            faces.append((2 * sides + 1, sides + side, sides + next_side))
+    return flat_triangles(vertices, faces)
+
+
 def geometry(obj):
     kind = obj["type"]
     if kind in ("sphere", "torus"):
@@ -166,6 +204,22 @@ def geometry(obj):
                     corners.append(np.concatenate((point * np.array(obj["size"]) / 2, normal)))
                 rows.extend(corners[index] for index in (0, 1, 2, 0, 2, 3))
         return np.array(rows, dtype=np.float32)
+    if kind == "tetrahedron":
+        width, height, depth = obj["size"]
+        vertices = ((0, height / 2, 0), (-width / 2, -height / 2, depth / 2),
+                    (width / 2, -height / 2, depth / 2), (0, -height / 2, -depth / 2))
+        return flat_triangles(vertices, ((0, 1, 2), (0, 2, 3), (0, 3, 1), (1, 3, 2)))
+    if kind in ("cylinder", "cone"):
+        return radial_geometry(obj["radius"], obj["size"][1], 0 if kind == "cone" else None)
+    if kind == "capsule":
+        radius = obj["radius"]
+        half_segment = max(obj["size"][1] / 2 - radius, 0)
+        u, v = np.meshgrid(np.linspace(0, math.tau, 49),
+                           np.linspace(-math.pi / 2, math.pi / 2, 25), indexing="ij")
+        n = np.stack((np.cos(u) * np.cos(v), np.sin(v), np.sin(u) * np.cos(v)), axis=-1)
+        p = n * radius
+        p[..., 1] += np.where(v < 0, -half_segment, half_segment)
+        return grid_triangles(p, n)
     # Volumetric tubes avoid platform-dependent OpenGL line-width limitations.
     path = np.array(obj["points"], dtype=np.float32)
     tangents = np.diff(path, axis=0)

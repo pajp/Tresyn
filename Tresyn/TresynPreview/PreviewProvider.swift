@@ -114,6 +114,17 @@ private enum PreviewHTML {
             let radius = max(8, (object.majorRadius ?? 0.18) / sceneWidth * canvasWidth * scaleX)
             let thickness = max(3, (object.minorRadius ?? 0.05) / sceneWidth * canvasWidth * scaleX * 2)
             return "<circle cx=\"\(x)\" cy=\"\(y)\" r=\"\(radius)\" fill=\"none\" stroke=\"\(color)\" stroke-width=\"\(thickness)\"/>"
+        case "tetrahedron", "cone":
+            let size = object.size ?? [0.36, 0.42, 0.36]
+            let width = max(8, (size[safe: 0] ?? 0.36) / sceneWidth * canvasWidth * scaleX)
+            let height = max(8, (size[safe: 1] ?? 0.42) / sceneHeight * canvasHeight * scaleY)
+            return "<polygon points=\"\(x),\(y - height / 2) \(x - width / 2),\(y + height / 2) \(x + width / 2),\(y + height / 2)\" fill=\"\(color)\" opacity=\".92\"/>"
+        case "cylinder", "capsule":
+            let size = object.size ?? [0.32, 0.48, 0.32]
+            let width = max(8, (size[safe: 0] ?? 0.32) / sceneWidth * canvasWidth * scaleX)
+            let height = max(8, (size[safe: 1] ?? 0.48) / sceneHeight * canvasHeight * scaleY)
+            let cornerRadius = object.type == "capsule" ? width / 2 : width * 0.15
+            return "<rect x=\"\(x - width / 2)\" y=\"\(y - height / 2)\" width=\"\(width)\" height=\"\(height)\" rx=\"\(cornerRadius)\" fill=\"\(color)\" opacity=\".92\"/>"
         default:
             return "<circle cx=\"\(x)\" cy=\"\(y)\" r=\"6\" fill=\"\(color)\"/>"
         }
