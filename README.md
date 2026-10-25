@@ -26,6 +26,9 @@ expired code.
 
 Drawing mode supports colored spheres, boxes, toruses, thick 3D lines, and
 polylines, including live stroke appends, updates, deletion, and clearing.
+The Python renderer pauses redraws while the drawing or pairing display is
+unchanged; it checks for remote commands and pairing updates 30 times per second.
+The animated dashboard renders at up to 30 frames per second.
 With the server enabled, the scene and current mode are saved to the Git-ignored
 `.drawing-local/drawing-scene.json` when the app closes normally and restored on
 the next server launch. The server writes this snapshot on normal shutdown, so

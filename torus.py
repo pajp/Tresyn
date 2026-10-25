@@ -465,6 +465,11 @@ class App:
         self.show_pairing = False
         self.client_was_active = False
         self.last_title = None
+        self.needs_redraw = True
+        self.rendered_revision = -1
+        self.rendered_pairing = None
+        self.rendered_size = None
+        self.next_animation_frame = 0
         if args.server:
             self.server = DrawingServer(args.host, args.port)
             self.show_pairing = True
@@ -546,8 +551,10 @@ class App:
         if right or (left and shift):
             height = max(1, self.window.get_size()[1])
             self.pose.move(dx * 5.2 / height, -dy * 5.2 / height)
+            self.needs_redraw = True
         elif left:
             self.pose.rotate(dx, dy, self.held(glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT))
+            self.needs_redraw = True
 
     def scroll(self, window, dx, dy):
         if self.show_pairing:
@@ -558,6 +565,7 @@ class App:
             self.pose.rotate((dx + dy) * 3, 0, roll=True)
         else:
             self.pose.move(dx * 0.035, dy * 0.035)
+        self.needs_redraw = True
 
     def mouse_button(self, window, button, action, mods):
         if self.show_pairing and button == glfw.MOUSE_BUTTON_LEFT and action == glfw.PRESS:
@@ -567,6 +575,7 @@ class App:
                 self.server.pairing.issue()
             elif command == "back":
                 self.show_pairing = False
+            self.needs_redraw = True
 
     def key(self, window, key, scancode, action, mods):
         if action == glfw.PRESS:
@@ -574,6 +583,7 @@ class App:
                 glfw.set_window_should_close(window, True)
             elif key in (glfw.KEY_R, glfw.KEY_HOME):
                 self.pose.reset()
+                self.needs_redraw = True
             elif key == glfw.KEY_TAB:
                 self.scene.apply({"op": "mode", "mode": "drawing" if self.scene.mode == "dashboard" else "dashboard"})
                 self.show_pairing = False
@@ -583,6 +593,7 @@ class App:
                 else:
                     self.server.pairing.issue()
                 self.show_pairing = True
+            self.needs_redraw = True
 
     def draw(self, view=0.5, quilt=False):
         vp, eye = camera(view, self.aspect, self.cone, quilt)
@@ -601,8 +612,6 @@ class App:
 
     def frame(self):
         glfw.make_context_current(self.window.handle)
-        if not self.show_pairing and self.scene.mode == "dashboard":
-            self.text_stream.update(time.monotonic())
         if self.server:
             self.server.process(self.scene.apply)
             if self.server.pairing_needed.is_set():
@@ -615,7 +624,6 @@ class App:
             self.client_was_active = active
             if self.show_pairing:
                 self.pair_screen.update(pairing_state, self.server.port)
-        self.drawing.sync(self.scene)
         title = f"Torus | {self.scene.mode.title()} | {self.status}"
         if self.server:
             count = self.server.pairing.active_count
@@ -623,6 +631,20 @@ class App:
         if title != self.last_title:
             self.window.set_title(title)
             self.last_title = title
+        size = self.window.framebuffer_size()
+        pairing = self.pair_screen.signature if self.show_pairing else None
+        animated = not self.show_pairing and self.scene.mode == "dashboard"
+        now = time.monotonic()
+        changed = (self.needs_redraw or self.scene.revision != self.rendered_revision
+                   or pairing != self.rendered_pairing or size != self.rendered_size)
+        redraw = self.args.frames or (animated and now >= self.next_animation_frame) or (not animated and changed)
+        if not redraw:
+            return False
+        if animated:
+            self.text_stream.update(now)
+            self.next_animation_frame = now + 1 / 30
+        if self.scene.revision != self.rendered_revision:
+            self.drawing.sync(self.scene)
         GL.glEnable(GL.GL_DEPTH_TEST)
         GL.glDisable(GL.GL_CULL_FACE)
         GL.glDisable(GL.GL_SCISSOR_TEST)
@@ -642,7 +664,7 @@ class App:
                 self.cols, self.rows, self.aspect, 1.0)
             glfw.make_context_current(self.window.handle)
         GL.glBindFramebuffer(GL.GL_FRAMEBUFFER, 0)
-        width, height = self.window.framebuffer_size()
+        width, height = size
         GL.glViewport(0, 0, width, height)
         GL.glClearColor(0.025, 0.03, 0.035, 1)
         GL.glClear(GL.GL_COLOR_BUFFER_BIT | GL.GL_DEPTH_BUFFER_BIT)
@@ -651,6 +673,11 @@ class App:
         h = min(height, int(width / self.aspect))
         GL.glViewport((width - w) // 2, (height - h) // 2, w, h)
         self.draw()
+        self.rendered_revision = self.scene.revision
+        self.rendered_pairing = pairing
+        self.rendered_size = size
+        self.needs_redraw = False
+        return True
 
     def run(self):
         print("Drag: rotate | Two-finger scroll: move | Shift-scroll: depth\n"
@@ -660,8 +687,15 @@ class App:
             print("P: show pairing code | Shift+P: disconnect client and re-pair | Tab: dashboard/drawing", flush=True)
         frames, start = 0, time.monotonic()
         while not self.window.should_close():
-            self.window.poll_events()
-            self.frame()
+            timeout = 1 / 30
+            if not self.show_pairing and self.scene.mode == "dashboard":
+                timeout = min(timeout, max(0, self.next_animation_frame - time.monotonic()))
+            if timeout:
+                glfw.wait_events_timeout(timeout)
+            else:
+                self.window.poll_events()
+            if not self.frame():
+                continue
             frames += 1
             if self.args.frames and frames >= self.args.frames:
                 if self.args.screenshot:
