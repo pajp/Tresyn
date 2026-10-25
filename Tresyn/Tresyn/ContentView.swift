@@ -344,19 +344,18 @@ struct ContentView: View {
             }
             .fixedSize(horizontal: true, vertical: false)
             VStack(spacing: 8) {
+                #if !os(macOS)
                 HStack(spacing: 10) {
-                    #if !os(macOS)
                     openSceneButton
                     saveSceneButton
-                    exportUSDZButton
-                    #endif
                 }
+                exportUSDZButton
+                #endif
                 HStack(spacing: 10) {
                     clearSceneButton
                     disconnectButton
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .controlSize(.small)
