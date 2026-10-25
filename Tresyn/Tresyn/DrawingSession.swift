@@ -49,6 +49,8 @@ final class DrawingSession: ObservableObject {
     @Published var isImportingScene = false
     @Published var isExportingScene = false
     @Published var exportDocument = SceneExportDocument()
+    @Published var isExportingUSDZ = false
+    @Published var usdzExportDocument = USDZExportDocument()
 
     private var client: TorusClient?
     private var objectCounter = 0
@@ -103,6 +105,19 @@ final class DrawingSession: ObservableObject {
                 isExportingScene = true
             } catch {
                 reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func requestUSDZExport() {
+        guard canTransferScene else { return }
+        Task {
+            do {
+                let archive = try await captureScene()
+                usdzExportDocument = USDZExportDocument(data: try USDZExporter.data(for: archive.objects))
+                isExportingUSDZ = true
+            } catch {
+                reportSceneTransfer("Couldn’t export USDZ: \(error.localizedDescription)")
             }
         }
     }

@@ -31,6 +31,11 @@ private struct SceneCommands: Commands {
             }
             .keyboardShortcut("s")
             .disabled(session?.canTransferScene != true)
+
+            Button("Export USDZ…") {
+                session?.requestUSDZExport()
+            }
+            .disabled(session?.canTransferScene != true)
         }
 
         CommandGroup(replacing: .undoRedo) {

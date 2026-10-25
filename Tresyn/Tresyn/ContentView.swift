@@ -115,6 +115,19 @@ struct ContentView: View {
                 session.reportSceneTransfer("Couldn’t save scene: \(error.localizedDescription)")
             }
         }
+        .fileExporter(
+            isPresented: $session.isExportingUSDZ,
+            document: session.usdzExportDocument,
+            contentType: .usdz,
+            defaultFilename: "Tresyn Scene"
+        ) { result in
+            switch result {
+            case .success:
+                session.reportSceneTransfer("USDZ exported.")
+            case .failure(let error):
+                session.reportSceneTransfer("Couldn’t export USDZ: \(error.localizedDescription)")
+            }
+        }
     }
 
     private var pairing: some View {
@@ -324,6 +337,7 @@ struct ContentView: View {
                 #if !os(macOS)
                 openSceneButton
                 saveSceneButton
+                exportUSDZButton
                 #endif
                 clearSceneButton
                 disconnectButton
@@ -334,6 +348,7 @@ struct ContentView: View {
                     #if !os(macOS)
                     openSceneButton
                     saveSceneButton
+                    exportUSDZButton
                     #endif
                 }
                 HStack(spacing: 10) {
@@ -363,6 +378,14 @@ struct ContentView: View {
             session.requestSceneSave()
         } label: {
             Label("Save", systemImage: "square.and.arrow.down")
+        }
+    }
+
+    private var exportUSDZButton: some View {
+        Button {
+            session.requestUSDZExport()
+        } label: {
+            Label("Export USDZ", systemImage: "cube.transparent")
         }
     }
 

@@ -81,3 +81,26 @@ final class SceneExportDocument: WritableDocument {
         archive
     }
 }
+
+@MainActor
+final class USDZExportDocument: WritableDocument {
+    static let writableContentTypes: [UTType] = [.usdz]
+
+    let data: Data
+
+    init(data: Data = Data()) {
+        self.data = data
+    }
+
+    nonisolated func writer(
+        configuration: sending WriteConfiguration
+    ) -> sending FileWrapperDocumentWriter<Data> {
+        FileWrapperDocumentWriter(configuration) { snapshot, _ in
+            FileWrapper(regularFileWithContents: snapshot)
+        }
+    }
+
+    func snapshot(contentType: UTType) async throws -> sending Data {
+        data
+    }
+}
